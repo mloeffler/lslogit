@@ -1,7 +1,8 @@
 /*****************************************************************************
  *
- * izaML_clogitI: CONDITIONAL LOGIT MODEL,
- *                INTEGRATING WAGE PREDICTION ERRORS OUT
+ *  lslogit - ESTIMATING MIXED LOGIT LABOR SUPPLY MODELS WITH STATA
+ * 
+ * (c) 2012 - Max Löffler
  *
  *****************************************************************************/
 
