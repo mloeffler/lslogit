@@ -38,8 +38,9 @@ cap program drop lslogit_Estimate
 /**
  * Conditional Logit but integrating out wage prediction errors (Wrapper programm)
  * 
- * @param `group'  Group identifier variable
- * @param `taxreg' Stored estimates of the tax regression
+ * @param `group' varname  Group identifier variable
+ * @param `taxreg' name Stored estimates of the tax regression
+ * @param `burn' integer Number of initial Halton draws to burn
  */
 program define lslogit_Estimate, eclass
     syntax varname(numeric) [if] [in] [fweight/], GRoup(varname numeric) TYP(name) Ufunc(name)                          ///
