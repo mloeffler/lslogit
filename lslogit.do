@@ -47,7 +47,7 @@ program define lslogit_Estimate, eclass
                                                   Consumption(varname numeric) Leisure(varlist numeric min=1 max=2)          ///
                                                   [cx(varlist numeric) l1x(varlist numeric) l2x(varlist numeric) INDeps(varlist)          ///
                                                    /*Wages(varlist numeric min=1 max=2) Hours(varlist numeric min=1 max=2)*/ ///
-                                                   difficult trace search(name) iterate(integer 100)                         ///
+                                                   difficult trace search(name) iterate(integer 100) corr                    ///
                                                    Level(integer `c(level)') gradient hessian debug burn(integer 15)        ///
                                                    DRaws(integer 50) Verbose WAGEPred TAXReg(name) RANDvars(string) method(name)]
     
@@ -276,6 +276,7 @@ program define lslogit_Estimate, eclass
     mata: ml_draws = strtoreal(st_local("draws"))                   // Number of draws
     mata: ml_burn  = strtoreal(st_local("burn"))                    // Number of draws to burn
     mata: ml_Rvars = ("`randvars'" != "" ? strtoreal(tokens(st_local("randvars")))' : J(0, 0, 0))   // Random coefficients
+    mata: ml_corr  = ("`corr'" != "")                               // Random variables correlated?
     /*mata: ml_R     = st_data(., tokens(st_local("rvars")))          // Random draws*/
     mata: ml_R     = (`max_rvars' > 0 ? invnormal(halton(ml_groups*ml_draws, `max_rvars', 1+`burn')) : J(`nobs', 0, 0))     // Random draws
     
@@ -304,7 +305,7 @@ program define lslogit_Estimate, eclass
     if (`n_leisure' == 2)  local eq_leisure  `eq_leisure' /`ln'L1X`ln'L2
     if (`n_indeps'  > 0)   local eq_indepvar (indeps: `indeps', noconst)
     */
-    local eq_consum (C:  `varlist' = `cx' `consumption')
+    local eq_consum (C: `varlist' = `cx' `consumption')
     local eq_leisure
     foreach var of local leisure {
         local i = 1 + (strpos("`leisure'", "`var'") > 1)
@@ -312,9 +313,19 @@ program define lslogit_Estimate, eclass
     }
     if (`n_leisure' == 2)  local eq_leisure  `eq_leisure' /L1XL2
     if (`n_indeps'  > 0)   local eq_indepvar (IND: `indeps', noconst)
-    forval i = 1/`n_randvars' {
-        local eq_indepvar `eq_indepvar' /SD`i'
-        if ("`initopt'" != "") mat `init_from' = (`init_from', 0.1)
+    if ("`corr'" == "") {
+        forval i = 1/`n_randvars' {
+            local eq_indepvar `eq_indepvar' /SD`i'
+        }
+        if ("`initopt'" != "") mat `init_from' = (`init_from', J(1, `n_randvars', 0.1))
+    }
+    else {
+        forval i = 1/`n_randvars' {
+            forval k = `i'/`n_randvars' {
+                local eq_indepvar `eq_indepvar' /S`i'`k'
+            }
+        }
+        if ("`initopt'" != "") mat `init_from' = (`init_from', J(1, `n_randvars' * (`n_randvars' + 1) / 2, 0.1))
     }
     
     // Estimate
@@ -376,6 +387,7 @@ void lslogit_d2(transmorphic scalar M, real scalar todo, real rowvector B,
     
     external ml_X
     external ml_Y               // Get dependent variable
+    external ml_corr
     
     
     /* Setup */
@@ -398,17 +410,27 @@ void lslogit_d2(transmorphic scalar M, real scalar todo, real rowvector B,
     i   = 1         // Indicates first observation of active group
     iRV = 1         // Indicates next random variable to use (column of ml_R)
     
+    // Number of coefficients
+    brnd = (ml_corr == 1 ? rows(ml_Rvars) * (rows(ml_Rvars) + 1) / 2 : rows(ml_Rvars))
+    bfix = cols(B) - brnd
+    
     // Build coefficient vector
-    Bfix = B[|1,1\1,cols(B)-rows(ml_Rvars)|]                            // Get fixed coefficients
-    Brnd = (rows(ml_Rvars) > 0 ? B[|1,cols(Bfix)+1\1,.|] : J(0, 0, 0))  // Get auxiliary random coefficients
+    Bfix = B[|1,1\1,bfix|]                            // Get fixed coefficients
+    Brnd = (rows(ml_Rvars) > 0 ? B[|1,bfix + 1\1,.|] : J(0, 0, 0))  // Get auxiliary random coefficients
     //Sigm = diag(exp(Brnd))                                              // Build variance-(covariance) matrix
-    Sigm = diag(Brnd)                                              // Build variance-(covariance) matrix
+    //Sigm = sqrt(diag(Brnd'):^2)                                             // Build variance-(covariance) matrix
+    Sigm = (ml_corr == 1 ? lowertriangle(invvech(Brnd')) : diag(Brnd')) // Build variance-(covariance) matrix
     
     // Build matrix with random coefficients (mean zero), every row is a draw
-    if (rows(ml_Rvars) > 0) {
+    if (brnd > 0) {
         Brnd = J(rows(ml_R), cols(Bfix), 0)
         for (rv = 1; rv <= rows(ml_Rvars); rv++) {
-            Brnd[.,ml_Rvars[rv,1]] = ml_R[.,iRV] :* Sigm[iRV,iRV]
+            if (ml_corr == 0) Brnd[.,ml_Rvars[rv,1]] = ml_R[.,rv] :* Sigm[rv,rv]
+            else {
+                for (rv2 = rv; rv2 <= rows(ml_Rvars); rv2++) {
+                    Brnd[.,ml_Rvars[rv2,1]] = Brnd[.,ml_Rvars[rv2,1]] + ml_R[.,rv] :* Sigm[rv2,rv]
+                }
+            }
             iRV = iRV + 1
         }
     }
@@ -495,24 +517,29 @@ void lslogit_d2(transmorphic scalar M, real scalar todo, real rowvector B,
             /* Calculate utility levels */
             
             // Build (random?) coefficients matrix
-            Beta = Bfix :+ (rows(ml_Rvars) > 0 ? Brnd[ml_draws * (n-1) + r,.] : 0)
+            Beta = Bfix :+ (brnd > 0 ? Brnd[ml_draws * (n-1) + r,.] : 0)
             
             // Calculate choice probabilities
             Unr = Xnr * Beta'                                           // Utility (choices in rows, draws in columns)
             Enr = exp(Unr :+ colmin(-mean(Unr) \ 700 :- colmax(Unr)))   // Standardize to avoid missings
             Pnr = Enr :/ colsum(Enr)                                    // Probabilities
+            
+            // TODO: Simplify!
+            //   - Pni
 
 
             /* Add to sum over draws */
             
             // Add to likelihood
             lsum = lsum + Yn' * Pnr
-
+            
             // Calculate gradient vector
             if (todo >= 1) {
                 Gnr = colsum(Yn' * Pnr * (Yn - Pnr) :* Xnr)
                 for (rv = 1; rv <= rows(ml_Rvars); rv++) {
-                    Gnr = (Gnr, (Pnr' * Yn :* (Yn' :- Pnr') * Xnr[.,ml_Rvars[rv,1]])' * ml_R[ml_draws * (n-1) + r,rv])
+                    for (rv2 = rv; rv2 <= rows(ml_Rvars); rv2++) {
+                        Gnr = (Gnr, (Pnr' * Yn :* (Yn' :- Pnr') * Xnr[.,ml_Rvars[rv2,1]])' * ml_R[ml_draws * (n-1) + r,rv])
+                    }
                 }
                 Gsum = Gsum + Gnr
             }
@@ -524,18 +551,39 @@ void lslogit_d2(transmorphic scalar M, real scalar todo, real rowvector B,
                     H1nr = - (Yn' * Pnr) :*  (Yn' * Xnr - Pnr' * Xnr)
                     H2nr =   (Yn' * Pnr) :* ((Yn' * Xnr - Pnr' * Xnr)' * ((Yn - Pnr)' * Xnr) - (Pnr :* Xnr)' * (Xnr :- Pnr' * Xnr))
                     S1xy = J(1, 0, 0)
-                    S2xx = J(0, 1, 0)
+                    S2xx = J(brnd, brnd, 0)
                     S2xy = J(0, cols(H2nr), 0)
-                    for (rv = 1; rv <= rows(ml_Rvars); rv++) {
-                        S1xy = S1xy, - (Yn' * Pnr) :*  (Yn' * Xnr[.,ml_Rvars[rv,1]] - Pnr' * Xnr[.,ml_Rvars[rv,1]]) * ml_R[ml_draws * (n-1) + r,rv]
-                        S2xy = S2xy \  (Yn' * Pnr) :* ((Yn' * Xnr[.,ml_Rvars[rv,1]] - Pnr' * Xnr[.,ml_Rvars[rv,1]])' * ((Yn - Pnr)' * Xnr) - (Xnr[.,ml_Rvars[rv,1]] :- Pnr' * Xnr[.,ml_Rvars[rv,1]])' * (Pnr :* Xnr)) * ml_R[ml_draws * (n-1) + r,rv]
-                        S2xx = S2xx \  (Yn' * Pnr) :* ((Yn' * Xnr[.,ml_Rvars[rv,1]] - Pnr' * Xnr[.,ml_Rvars[rv,1]])' * ((Yn - Pnr)' * Xnr[.,ml_Rvars[rv,1]]) - (Pnr :* Xnr[.,ml_Rvars[rv,1]])' * (Xnr[.,ml_Rvars[rv,1]] :- Pnr' * Xnr[.,ml_Rvars[rv,1]])) * ml_R[ml_draws * (n-1) + r,rv]:^2
-                        for (rv2 = rv + 1; rv2 <= rows(ml_Rvars); rv2++) {
-                            S2xx = S2xx \ (Yn' * Pnr) :* ((Yn' * Xnr[.,ml_Rvars[rv,1]] - Pnr' * Xnr[.,ml_Rvars[rv,1]])' * ((Yn - Pnr)' * Xnr[.,ml_Rvars[rv2,1]]) - (Pnr :* Xnr[.,ml_Rvars[rv2,1]])' * (Xnr[.,ml_Rvars[rv,1]] :- Pnr' * Xnr[.,ml_Rvars[rv,1]])) * ml_R[ml_draws * (n-1) + r,rv] * ml_R[ml_draws * (n-1) + r,rv2]
+                    if (ml_corr == 1) {
+                        iCol = 1
+                        for (rv = 1; rv <= rows(ml_Rvars); rv++) {
+                            nCols = rows(ml_Rvars) - rv + 1
+                            iRow = iCol
+                            for (rv2 = rv; rv2 <= rows(ml_Rvars); rv2++) {
+                                nRows = rows(ml_Rvars) - rv2 + 1
+                                S1xy = S1xy, - (Yn' * Pnr) :*  (Yn' * Xnr[.,ml_Rvars[rv2,1]] - Pnr' * Xnr[.,ml_Rvars[rv2,1]])  * ml_R[ml_draws * (n-1) + r,rv]
+                                S2xy = S2xy \          (Yn' * Pnr) :* ((Yn' * Xnr[.,ml_Rvars[rv2,1]] - Pnr' * Xnr[.,ml_Rvars[rv2,1]])' * ((Yn - Pnr)' * Xnr) - (Xnr[.,ml_Rvars[rv2,1]] :- Pnr' * Xnr[.,ml_Rvars[rv2,1]])' * (Pnr :* Xnr)) * ml_R[ml_draws * (n-1) + r,rv]
+                                blub = (Yn' * Pnr) :* ((Yn'  * Xnr[.,ml_Rvars[|rv2,1\rv2+nRows-1,1|]]  - Pnr' * Xnr[.,ml_Rvars[|rv2,1\rv2+nRows-1,1|]])' * ((Yn - Pnr)' * Xnr[.,ml_Rvars[|rv,1\rv+nCols-1,1|]]) -
+                                                              (Xnr[.,ml_Rvars[|rv2,1\rv2+nRows-1,1|]] :- Pnr' * Xnr[.,ml_Rvars[|rv2,1\rv2+nRows-1,1|]])' *        (Pnr :* Xnr[.,ml_Rvars[|rv,1\rv+nCols-1,1|]])) *
+                                                    ml_R[ml_draws * (n-1) + r,rv] * ml_R[ml_draws * (n-1) + r,rv2]
+                                S2xx[|iRow,iCol\iRow+nRows-1,iCol+nCols-1|] = blub
+                                if (iRow != iCol) S2xx[|iCol,iRow\iCol+nCols-1,iRow+nRows-1|] = blub'
+                                iRow = iRow + nRows
+                            }
+                            iCol = iCol + nCols
+                        }
+                    } else {
+                        for (rv = 1; rv <= rows(ml_Rvars); rv++) {
+                            S1xy = S1xy, - (Yn' * Pnr) :*  (Yn' * Xnr[.,ml_Rvars[rv,1]] - Pnr' * Xnr[.,ml_Rvars[rv,1]]) * ml_R[ml_draws * (n-1) + r,rv]
+                            S2xy = S2xy \  (Yn' * Pnr) :* ((Yn' * Xnr[.,ml_Rvars[rv,1]] - Pnr' * Xnr[.,ml_Rvars[rv,1]])' * ((Yn - Pnr)' * Xnr) - (Xnr[.,ml_Rvars[rv,1]] :- Pnr' * Xnr[.,ml_Rvars[rv,1]])' * (Pnr :* Xnr)) * ml_R[ml_draws * (n-1) + r,rv]
+                            S2xx = S2xx \  (Yn' * Pnr) :* ((Yn' * Xnr[.,ml_Rvars[rv,1]] - Pnr' * Xnr[.,ml_Rvars[rv,1]])' * ((Yn - Pnr)' * Xnr[.,ml_Rvars[rv,1]]) - (Pnr :* Xnr[.,ml_Rvars[rv,1]])' * (Xnr[.,ml_Rvars[rv,1]] :- Pnr' * Xnr[.,ml_Rvars[rv,1]])) * ml_R[ml_draws * (n-1) + r,rv]:^2
+                            for (rv2 = rv + 1; rv2 <= rows(ml_Rvars); rv2++) {
+                                S2xx = S2xx \ (Yn' * Pnr) :* ((Yn' * Xnr[.,ml_Rvars[rv,1]] - Pnr' * Xnr[.,ml_Rvars[rv,1]])' * ((Yn - Pnr)' * Xnr[.,ml_Rvars[rv2,1]]) - (Pnr :* Xnr[.,ml_Rvars[rv2,1]])' * (Xnr[.,ml_Rvars[rv,1]] :- Pnr' * Xnr[.,ml_Rvars[rv,1]])) * ml_R[ml_draws * (n-1) + r,rv] * ml_R[ml_draws * (n-1) + r,rv2]
+                            }
+                            S2xx = invvech(S2xx)
                         }
                     }
                     H1sum = H1sum + (H1nr, S1xy)
-                    H2sum = H2sum + (H2nr, S2xy' \ S2xy, invvech(S2xx))
+                    H2sum = H2sum + (H2nr, S2xy' \ S2xy, S2xx)
                 }
             }
         }
