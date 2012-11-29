@@ -1,6 +1,6 @@
 /*****************************************************************************
  *
- *  lslogit - ESTIMATING MIXED LOGIT LABOR SUPPLY MODELS WITH STATA
+ * lslogit -- ESTIMATING MIXED LOGIT LABOR SUPPLY MODELS WITH STATA
  * 
  * (c) 2012 - Max Löffler
  *
@@ -309,23 +309,25 @@ program define lslogit_Estimate, eclass
     local eq_leisure
     foreach var of local leisure {
         local i = 1 + (strpos("`leisure'", "`var'") > 1)
-        local eq_leisure `eq_leisure' (L`i': `l`i'x' `var') /`ln'CX`ln'L`i'
+        local eq_leisure `eq_leisure' (L`i': `l`i'x' `var') /CXL`i'
     }
     if (`n_leisure' == 2)  local eq_leisure  `eq_leisure' /L1XL2
     if (`n_indeps'  > 0)   local eq_indepvar (IND: `indeps', noconst)
-    if ("`corr'" == "") {
-        forval i = 1/`n_randvars' {
-            local eq_indepvar `eq_indepvar' /SD`i'
-        }
-        if ("`initopt'" != "") mat `init_from' = (`init_from', J(1, `n_randvars', 0.1))
-    }
-    else {
-        forval i = 1/`n_randvars' {
-            forval k = `i'/`n_randvars' {
-                local eq_indepvar `eq_indepvar' /S`i'`k'
+    if (`n_randvars' > 0) {
+        if ("`corr'" == "") {
+            forval i = 1/`n_randvars' {
+                local eq_indepvar `eq_indepvar' /SD`i'
             }
+            if ("`initopt'" != "") mat `init_from' = (`init_from', J(1, `n_randvars', 0.1))
         }
-        if ("`initopt'" != "") mat `init_from' = (`init_from', J(1, `n_randvars' * (`n_randvars' + 1) / 2, 0.1))
+        else {
+            forval i = 1/`n_randvars' {
+                forval k = `i'/`n_randvars' {
+                    local eq_indepvar `eq_indepvar' /l`k'`i' // /S`i'`k'
+                }
+            }
+            if ("`initopt'" != "") mat `init_from' = (`init_from', J(1, `n_randvars' * (`n_randvars' + 1) / 2, 0.1))
+        }
     }
     
     // Estimate
@@ -410,13 +412,16 @@ void lslogit_d2(transmorphic scalar M, real scalar todo, real rowvector B,
     i   = 1         // Indicates first observation of active group
     iRV = 1         // Indicates next random variable to use (column of ml_R)
     
+    // Number of random variables
+    rvars = rows(ml_Rvars)
+    
     // Number of coefficients
-    brnd = (ml_corr == 1 ? rows(ml_Rvars) * (rows(ml_Rvars) + 1) / 2 : rows(ml_Rvars))
+    brnd = (ml_corr == 1 ? rvars * (rvars + 1) / 2 : rvars)
     bfix = cols(B) - brnd
     
     // Build coefficient vector
     Bfix = B[|1,1\1,bfix|]                            // Get fixed coefficients
-    Brnd = (rows(ml_Rvars) > 0 ? B[|1,bfix + 1\1,.|] : J(0, 0, 0))  // Get auxiliary random coefficients
+    Brnd = (rvars > 0 ? B[|1,bfix + 1\1,.|] : J(0, 0, 0))  // Get auxiliary random coefficients
     //Sigm = diag(exp(Brnd))                                              // Build variance-(covariance) matrix
     //Sigm = sqrt(diag(Brnd'):^2)                                             // Build variance-(covariance) matrix
     Sigm = (ml_corr == 1 ? lowertriangle(invvech(Brnd')) : diag(Brnd')) // Build variance-(covariance) matrix
@@ -424,10 +429,10 @@ void lslogit_d2(transmorphic scalar M, real scalar todo, real rowvector B,
     // Build matrix with random coefficients (mean zero), every row is a draw
     if (brnd > 0) {
         Brnd = J(rows(ml_R), cols(Bfix), 0)
-        for (rv = 1; rv <= rows(ml_Rvars); rv++) {
+        for (rv = 1; rv <= rvars; rv++) {
             if (ml_corr == 0) Brnd[.,ml_Rvars[rv,1]] = ml_R[.,rv] :* Sigm[rv,rv]
             else {
-                for (rv2 = rv; rv2 <= rows(ml_Rvars); rv2++) {
+                for (rv2 = rv; rv2 <= rvars; rv2++) {
                     Brnd[.,ml_Rvars[rv2,1]] = Brnd[.,ml_Rvars[rv2,1]] + ml_R[.,rv] :* Sigm[rv2,rv]
                 }
             }
@@ -474,7 +479,8 @@ void lslogit_d2(transmorphic scalar M, real scalar todo, real rowvector B,
         // Run by random draw
         for (r = 1; r <= ml_draws; r++) {
             // Init
-            iRV = 0     // Indicates the active random variable (starting at 0!!)
+            nRV = 0                         // Indicates the active random variable (starting at 0!!)
+            iRV = ml_draws * (n - 1) + r    // Indicates the active Halton sequence
             
             // If wage prediction enabled
             if (ml_wagep == 1) {
@@ -517,70 +523,77 @@ void lslogit_d2(transmorphic scalar M, real scalar todo, real rowvector B,
             /* Calculate utility levels */
             
             // Build (random?) coefficients matrix
-            Beta = Bfix :+ (brnd > 0 ? Brnd[ml_draws * (n-1) + r,.] : 0)
+            Beta = Bfix :+ (brnd > 0 ? Brnd[iRV,.] : 0)
             
             // Calculate choice probabilities
-            Unr = Xnr * Beta'                                           // Utility (choices in rows, draws in columns)
+            Unr = cross(Xnr', Beta')                                    // Utility (choices in rows, draws in columns)
             Enr = exp(Unr :+ colmin(-mean(Unr) \ 700 :- colmax(Unr)))   // Standardize to avoid missings
             Pnr = Enr :/ colsum(Enr)                                    // Probabilities
             
             // TODO: Simplify!
             //   - Pni
-
-
+            pni  = cross(Yn, Pnr)    // Probability that choice is chosen
+            //Pni = Pnr :* Xnr        // Vector containing pni
+            YmPn = Yn :- Pnr         // Choice minus probabilities
+            PXn  = cross(Pnr, Xnr)
+            YXn  = cross(Yn, Xnr)
+            
+            
             /* Add to sum over draws */
             
             // Add to likelihood
-            lsum = lsum + Yn' * Pnr
+            lsum = lsum + pni
             
             // Calculate gradient vector
             if (todo >= 1) {
-                Gnr = colsum(Yn' * Pnr * (Yn - Pnr) :* Xnr)
-                for (rv = 1; rv <= rows(ml_Rvars); rv++) {
-                    for (rv2 = rv; rv2 <= rows(ml_Rvars); rv2++) {
-                        Gnr = (Gnr, (Pnr' * Yn :* (Yn' :- Pnr') * Xnr[.,ml_Rvars[rv2,1]])' * ml_R[ml_draws * (n-1) + r,rv])
-                    }
+                Gnr = pni * colsum(YmPn :* Xnr)
+                for (rv = 1; rv <= rvars; rv++) {
+                    nCols = (ml_corr == 1 ? rvars - rv + 1 : 1)
+                    Gnr   = (Gnr, pni * cross(YmPn, Xnr[.,ml_Rvars[|rv,1\rv+nCols-1,1|]]) * ml_R[iRV,rv])
                 }
                 Gsum = Gsum + Gnr
             }
             
             // Calculate Hessian matrix
             if (todo == 2) {
-                if (ml_draws == 1) Hsum = Hsum - (Pnr :* Xnr)' * (Xnr :- Pnr' * Xnr)
+                if (ml_draws == 1) Hsum = Hsum - cross(Pnr :* Xnr, Xnr :- PXn)
                 else {
-                    H1nr = - (Yn' * Pnr) :*  (Yn' * Xnr - Pnr' * Xnr)
-                    H2nr =   (Yn' * Pnr) :* ((Yn' * Xnr - Pnr' * Xnr)' * ((Yn - Pnr)' * Xnr) - (Pnr :* Xnr)' * (Xnr :- Pnr' * Xnr))
+                //printf("todo2 - 1 - übrigens: rvars=" +strofreal(rvars)+"\n");
+                    H1nr = - pni :*  (YXn - PXn)
+                    H2nr =   pni :* (cross(YXn - PXn, cross(YmPn, Xnr)) - cross(Pnr :* Xnr, Xnr :- PXn))
                     S1xy = J(1, 0, 0)
-                    S2xx = J(brnd, brnd, 0)
+                    S2xx = J((ml_corr == 1 ? brnd : 0), (ml_corr == 1 ? brnd : 1), 0)
                     S2xy = J(0, cols(H2nr), 0)
+                //printf("todo2 - 2 - corr or not to corr\n");
                     if (ml_corr == 1) {
                         iCol = 1
-                        for (rv = 1; rv <= rows(ml_Rvars); rv++) {
-                            nCols = rows(ml_Rvars) - rv + 1
+                        for (rv = 1; rv <= rvars; rv++) {
+                            nCols = rvars - rv + 1
                             iRow = iCol
-                            for (rv2 = rv; rv2 <= rows(ml_Rvars); rv2++) {
-                                nRows = rows(ml_Rvars) - rv2 + 1
-                                S1xy = S1xy, - (Yn' * Pnr) :*  (Yn' * Xnr[.,ml_Rvars[rv2,1]] - Pnr' * Xnr[.,ml_Rvars[rv2,1]])  * ml_R[ml_draws * (n-1) + r,rv]
-                                S2xy = S2xy \          (Yn' * Pnr) :* ((Yn' * Xnr[.,ml_Rvars[rv2,1]] - Pnr' * Xnr[.,ml_Rvars[rv2,1]])' * ((Yn - Pnr)' * Xnr) - (Xnr[.,ml_Rvars[rv2,1]] :- Pnr' * Xnr[.,ml_Rvars[rv2,1]])' * (Pnr :* Xnr)) * ml_R[ml_draws * (n-1) + r,rv]
-                                blub = (Yn' * Pnr) :* ((Yn'  * Xnr[.,ml_Rvars[|rv2,1\rv2+nRows-1,1|]]  - Pnr' * Xnr[.,ml_Rvars[|rv2,1\rv2+nRows-1,1|]])' * ((Yn - Pnr)' * Xnr[.,ml_Rvars[|rv,1\rv+nCols-1,1|]]) -
-                                                              (Xnr[.,ml_Rvars[|rv2,1\rv2+nRows-1,1|]] :- Pnr' * Xnr[.,ml_Rvars[|rv2,1\rv2+nRows-1,1|]])' *        (Pnr :* Xnr[.,ml_Rvars[|rv,1\rv+nCols-1,1|]])) *
-                                                    ml_R[ml_draws * (n-1) + r,rv] * ml_R[ml_draws * (n-1) + r,rv2]
-                                S2xx[|iRow,iCol\iRow+nRows-1,iCol+nCols-1|] = blub
-                                if (iRow != iCol) S2xx[|iCol,iRow\iCol+nCols-1,iRow+nRows-1|] = blub'
+                            for (rv2 = rv; rv2 <= rvars; rv2++) {
+                                nRows = rvars - rv2 + 1
+                                S1xy = S1xy, - pni :*  (YXn[.,ml_Rvars[rv2,1]] - PXn[.,ml_Rvars[rv2,1]])  * ml_R[iRV,rv]
+                                S2xy = S2xy \  pni :* (cross(YXn[.,ml_Rvars[rv2,1]]                  - PXn[.,ml_Rvars[rv2,1]],                 cross(YmPn, Xnr)) -
+                                                       cross(Xnr[.,ml_Rvars[rv2,1]]                 :- PXn[.,ml_Rvars[rv2,1]], (Pnr :* Xnr))) * ml_R[iRV,rv]
+                                Svar =         pni :* (cross(YXn[.,ml_Rvars[|rv2,1\rv2+nRows-1,1|]] :- PXn[.,ml_Rvars[|rv2,1\rv2+nRows-1,1|]], cross(YmPn, Xnr[.,ml_Rvars[|rv,1\rv+nCols-1,1|]])) -
+                                                       cross(Xnr[.,ml_Rvars[|rv2,1\rv2+nRows-1,1|]] :- PXn[.,ml_Rvars[|rv2,1\rv2+nRows-1,1|]],      Pnr :* Xnr[.,ml_Rvars[|rv,1\rv+nCols-1,1|]])) *
+                                                    ml_R[iRV,rv] * ml_R[iRV,rv2]
+                                S2xx[|iRow,iCol\iRow+nRows-1,iCol+nCols-1|] = Svar
+                                if (iRow != iCol) S2xx[|iCol,iRow\iCol+nCols-1,iRow+nRows-1|] = Svar'
                                 iRow = iRow + nRows
                             }
                             iCol = iCol + nCols
                         }
                     } else {
-                        for (rv = 1; rv <= rows(ml_Rvars); rv++) {
-                            S1xy = S1xy, - (Yn' * Pnr) :*  (Yn' * Xnr[.,ml_Rvars[rv,1]] - Pnr' * Xnr[.,ml_Rvars[rv,1]]) * ml_R[ml_draws * (n-1) + r,rv]
-                            S2xy = S2xy \  (Yn' * Pnr) :* ((Yn' * Xnr[.,ml_Rvars[rv,1]] - Pnr' * Xnr[.,ml_Rvars[rv,1]])' * ((Yn - Pnr)' * Xnr) - (Xnr[.,ml_Rvars[rv,1]] :- Pnr' * Xnr[.,ml_Rvars[rv,1]])' * (Pnr :* Xnr)) * ml_R[ml_draws * (n-1) + r,rv]
-                            S2xx = S2xx \  (Yn' * Pnr) :* ((Yn' * Xnr[.,ml_Rvars[rv,1]] - Pnr' * Xnr[.,ml_Rvars[rv,1]])' * ((Yn - Pnr)' * Xnr[.,ml_Rvars[rv,1]]) - (Pnr :* Xnr[.,ml_Rvars[rv,1]])' * (Xnr[.,ml_Rvars[rv,1]] :- Pnr' * Xnr[.,ml_Rvars[rv,1]])) * ml_R[ml_draws * (n-1) + r,rv]:^2
-                            for (rv2 = rv + 1; rv2 <= rows(ml_Rvars); rv2++) {
-                                S2xx = S2xx \ (Yn' * Pnr) :* ((Yn' * Xnr[.,ml_Rvars[rv,1]] - Pnr' * Xnr[.,ml_Rvars[rv,1]])' * ((Yn - Pnr)' * Xnr[.,ml_Rvars[rv2,1]]) - (Pnr :* Xnr[.,ml_Rvars[rv2,1]])' * (Xnr[.,ml_Rvars[rv,1]] :- Pnr' * Xnr[.,ml_Rvars[rv,1]])) * ml_R[ml_draws * (n-1) + r,rv] * ml_R[ml_draws * (n-1) + r,rv2]
+                        for (rv = 1; rv <= rvars; rv++) {
+                            S1xy = S1xy,    - pni :*       (YXn[.,ml_Rvars[rv,1]] - PXn[.,ml_Rvars[rv,1]]) * ml_R[iRV,rv]
+                            S2xy = S2xy \     pni :* (cross(YXn[.,ml_Rvars[rv,1]] - PXn[.,ml_Rvars[rv,1]], cross(YmPn, Xnr))                    - cross(Xnr[.,ml_Rvars[rv,1]] :- PXn[.,ml_Rvars[rv,1]], Pnr :* Xnr)) * ml_R[iRV,rv]
+                            S2xx = S2xx \     pni :* (cross(YXn[.,ml_Rvars[rv,1]] - PXn[.,ml_Rvars[rv,1]], cross(YmPn, Xnr[.,ml_Rvars[rv,1]]))  - cross(Xnr[.,ml_Rvars[rv,1]] :- PXn[.,ml_Rvars[rv,1]], Pnr :* Xnr[.,ml_Rvars[rv,1]])) * ml_R[iRV,rv]:^2
+                            for (rv2 = rv + 1; rv2 <= rvars; rv2++) {
+                                S2xx = S2xx \ pni :* (cross(YXn[.,ml_Rvars[rv,1]] - PXn[.,ml_Rvars[rv,1]], cross(YmPn, Xnr[.,ml_Rvars[rv2,1]])) - cross(Xnr[.,ml_Rvars[rv,1]] :- PXn[.,ml_Rvars[rv,1]], Pnr :* Xnr[.,ml_Rvars[rv2,1]])) * ml_R[iRV,rv] * ml_R[iRV,rv2]
                             }
-                            S2xx = invvech(S2xx)
                         }
+                        S2xx = invvech(S2xx)
                     }
                     H1sum = H1sum + (H1nr, S1xy)
                     H2sum = H2sum + (H2nr, S2xy' \ S2xy, S2xx)
@@ -592,9 +605,9 @@ void lslogit_d2(transmorphic scalar M, real scalar todo, real rowvector B,
         lsum = max((lsum, 1e-25))
         
         // Add to overall statistics
-        lnf = lnf + ml_Weight[i,1] :* log(lsum / ml_draws)
-        if (todo >= 1) G = G + ml_Weight[i,1] :* (lsum > 1e-25 ? Gsum / lsum : J(1, cols(G), 0))
-        if (todo == 2) H = H + ml_Weight[i,1] :* (lsum > 1e-25 ? (ml_draws == 1 ? Hsum : Gsum' * H1sum / lsum^2 + H2sum / lsum) : J(rows(H), cols(H), 0))
+        lnf = lnf + ml_Weight[i,1] * log(lsum / ml_draws)
+        if (todo >= 1) G = G + ml_Weight[i,1] * (lsum > 1e-25 ? Gsum / lsum : J(1, cols(G), 0))
+        if (todo == 2) H = H + ml_Weight[i,1] * (lsum > 1e-25 ? (ml_draws == 1 ? Hsum : cross(Gsum, H1sum) / lsum^2 + H2sum / lsum) : J(rows(H), cols(H), 0))
         
         // Next household
         i = i + c
