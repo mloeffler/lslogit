@@ -43,7 +43,7 @@ cap program drop lslogit_Estimate
  * @param `burn' integer Number of initial Halton draws to burn
  */
 program define lslogit_Estimate, eclass
-    syntax varname(numeric) [if] [in] [fweight/], GRoup(varname numeric) TYP(name) Ufunc(name)                          ///
+    syntax varname(numeric) [if] [in] [fweight/], GRoup(varname numeric) Ufunc(name)                          ///
                                                   Consumption(varname numeric) Leisure(varlist numeric min=1 max=2)          ///
                                                   [cx(varlist numeric) l1x(varlist numeric) l2x(varlist numeric) INDeps(varlist)          ///
                                                    TOTALTime(integer 80) HWage(varlist numeric min=1 max=2) HECKSIGma(numlist min=1 max=2) tria1(varlist numeric) tria2(varlist numeric) ///
@@ -164,11 +164,6 @@ program define lslogit_Estimate, eclass
     // Build weight settings
     if ("`weight'" != "")   local wgt "[`weight'=`exp']"
     
-    // Adjust gender
-    local genderc = cond(inlist("`typ'", "sg_m", "sg_f"), 1, 2)
-    if (`genderc' == 2)   local genders   m f
-    else                  local genders = substr("`typ'", -1, 1)
-    
     // Select random variables
     local rvars = `n_randvars' + `n_wagep'
     
@@ -256,7 +251,6 @@ program define lslogit_Estimate, eclass
     
     // Setup data
     mata: ml_ufunc  = st_local("ufunc")                                                 // Utility function
-    mata: ml_typ    = st_local("typ")                                                   // Labor supply type
     mata: ml_Weight = ("`exp'" != "" ? st_data(., st_local("exp")) : J(`nobs', 1, 1))   // Weight
     mata: ml_Y      = st_data(., st_local("varlist"))                                   // Left hand side
     
@@ -425,24 +419,9 @@ void lslogit_d2(transmorphic scalar M, real scalar todo, real rowvector B,
     external ml_L2X
     external ml_Xind
     
-    //external ml_typ
-    
     
     /* Setup */
     
-    /*
-    // If not all household members need error integration, which do?
-    c_integr = ((ml_typ == "sg_m" | ml_typ == "sg_f") ? 1 : 2)
-    if (c_integr == 1) {
-        integr_a = 1
-        integr_b = 1
-    } else {
-        integr_a = ((ml_typ == "co_m" | ml_typ == "co_v") ? 1 : 2)
-        integr_b = ((ml_typ == "co_f" | ml_typ == "co_v") ? 2 : 1)
-    }
-    c_taxregIas = cols(ml_TaxregIas)
-    */
-
     // Definitions
     i     = 1                   // Indicates first observation of active group
     nRV   = 1                   // Indicates next random variable to use (column of ml_R)
