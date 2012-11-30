@@ -46,17 +46,17 @@ program define lslogit_Estimate, eclass
     syntax varname(numeric) [if] [in] [fweight/], GRoup(varname numeric) TYP(name) Ufunc(name)                          ///
                                                   Consumption(varname numeric) Leisure(varlist numeric min=1 max=2)          ///
                                                   [cx(varlist numeric) l1x(varlist numeric) l2x(varlist numeric) INDeps(varlist)          ///
-                                                   /*Wages(varlist numeric min=1 max=2) Hours(varlist numeric min=1 max=2)*/ ///
-                                                   difficult trace search(name) iterate(integer 100) corr                    ///
+                                                   TOTALTime(integer 80) HWage(varlist numeric min=1 max=2) HECKSIGma(numlist min=1 max=2) tria1(varlist numeric) tria2(varlist numeric) ///
+                                                   difficult trace search(name) iterate(integer 100) corr DAYs(varname numeric) ///
                                                    Level(integer `c(level)') gradient hessian debug burn(integer 15)        ///
-                                                   DRaws(integer 50) Verbose WAGEPred TAXReg(name) TAXBen(name) RANDvars(string) method(name)]
+                                                   DRaws(integer 50) Verbose WAGEPred(varlist numeric min=1 max=2) TAXReg(name) TAXBen(name) RANDvars(string) method(name)]
     
     /* INITIALIZE ESTIMATOR
      */
     
     // Mark the estimation sample
     marksample touse
-    markout `touse' `varlist' `group' `consumption' `leisure' `cx' `l1x' `l2x' `indeps'
+    markout `touse' `varlist' `group' `consumption' `leisure' `cx' `l1x' `l2x' `indeps' `wagepred' `days' `hwage' `tria1' `tria2'
     
     // Verbose mode
     if ("`verbose'" == "") local qui qui
@@ -88,16 +88,57 @@ program define lslogit_Estimate, eclass
         exit 498
     }
     
+    // Get variable count
+    local n_leisure  : word count `leisure'
+    local n_cxias    : word count `cx'
+    local n_l1xias   : word count `l1x'
+    local n_l2xias   : word count `l2x'
+    local n_indeps   : word count `indeps'
+    
+    local n_randvars : word count `randvars'
+    
+    local n_wagep    : word count `wagepred'
+    local n_hwage    : word count `hwage'
+    local n_hecksig  : word count `hecksigma'
+    local n_taxrias1 : word count `tria1'
+    local n_taxrias2 : word count `tria2'
+    
     // Validate Wage Prediction Options
-    if ("`taxreg'" != "") local wagepred = "wagepred"
-    if ("`wagepred'" == "" & "`randvars'" == "") local draws = 1
-    else if ("`wagepred'" != "") {
+    if (`n_wagep' == 0) {
+        local wagep = 0     // No wage prediction
+    }
+    else {
+        // Wage prediction enabled
+        if (`n_wagep' == `n_leisure' & `n_wagep' == `n_hwage' & `n_wagep' == `n_hecksig') {
+            tempvar preds
+            qui egen `preds' = rowtotal(`wagepred') if `touse'
+            qui count if inlist(`preds', 1, 2) & `touse'
+            local wagep = (r(N) > 0)
+        }
+        // Settings incorrect
+        else {
+            di in r "number of wage prediction variables does not match the number of leisure terms, hourly wage rates or mean squared errors"
+            exit 498
+        }
+    }
+    
+    //if ("`taxreg'" != "") local wagepred = "wagepred"
+    if (`wagep' == 0 & "`randvars'" == "") local draws = 1
+    else if (`wagep' == 1) {
         if ("`taxreg'" != "" & "`taxben'" == "") {
             tempname taxreg_from
             // Load tax regression estimates
             qui est restore `taxreg'
             mat `taxreg_from' = e(b)
             local taxreg_betas : colnames `taxreg_from'
+            local n_taxreg_betas : word count `taxreg_betas'
+            local taxreg_vars
+            local start = 1 + `n_taxrias1' + `n_taxrias2' + `n_wagep' * 5
+            forval x = `start'/`n_taxreg_betas' {
+                local var : word `x' of `taxreg_betas'
+                if ("`var'" != "_cons") local taxreg_vars `taxreg_vars' `var'
+            }
+            /*
             local taxreg_const
             local taxreg_wXias
             foreach beta of local taxreg_betas {
@@ -107,6 +148,7 @@ program define lslogit_Estimate, eclass
                     local taxreg_wXias `taxreg_wXias' `beta'
                 }
             }
+            */
         }
         // Run tax benefit calculator
         else if ("`taxreg'" == "" & "`taxben'" != "") {
@@ -122,21 +164,13 @@ program define lslogit_Estimate, eclass
     // Build weight settings
     if ("`weight'" != "")   local wgt "[`weight'=`exp']"
     
-    // Get variable count
-    local n_leisure  : word count `leisure'
-    local n_cxias    : word count `cx'
-    local n_l1xias   : word count `l1x'
-    local n_l2xias   : word count `l2x'
-    local n_indeps   : word count `indeps'
-    local n_randvars : word count `randvars'
-    
     // Adjust gender
     local genderc = cond(inlist("`typ'", "sg_m", "sg_f"), 1, 2)
     if (`genderc' == 2)   local genders   m f
     else                  local genders = substr("`typ'", -1, 1)
     
     // Select random variables
-    local rvars = `n_randvars' + `genderc' * ("`wagepred'" != "")
+    local rvars = `n_randvars' + `n_wagep'
     
     
     /* LOOK FOR INITIAL VALUES
@@ -254,26 +288,24 @@ program define lslogit_Estimate, eclass
     //
     // Wage Prediction Stuff
     //
-    if ("`wagepred'" != "") {
-        mata: ml_wagep = ("`wagepred'" != "")                   // Run Wage Prediction
-        mata: ml_Days  = st_data(., ("days"))                   // Days of taxyear
-        mata: ml_Hwage = J(`nobs', `genderc', 0)                // Hourly wage rates
-        mata: ml_Mwage = J(`nobs', `genderc', 0)                // Monthly wages
-        mata: ml_Hours = J(`nobs', `genderc', 0)                // Hypothetical hours
-        mata: ml_Sigma = J(1, `genderc', 0)                     // Estimated variance of Heckman correction
-        forval i = 1/`genderc' {                                // Add data by gender
-            local s : word `i' of `genders'
-            mata: ml_Hours[.,`i'] = st_data(., tokens("hyp_hour_`s'"))              // Hypothetical hours
-            mata: ml_Hwage[.,`i'] = st_data(., tokens("h_wage_`s'"))                // Hourly wage rates
-            mata: ml_Mwage[.,`i'] = st_data(., tokens("m_wage_`s'"))                // Monthly wages
-            mata: ml_Sigma[1,`i'] = strtoreal(st_global("log_heckman_sigma_`s'"))   // Estimated variance of Heckman correction
+    mata: ml_wagep = `wagep'                                                            // Run Wage Prediction
+    if (`wagep' == 1) {
+        mata: ml_Wpred = st_data(., ("`wagepred'"))                                     // Dummies enabling or disabling the wage prediction
+        mata: ml_Days  = ("`days'" != "" ? st_data(., ("`days'")) : J(`nobs', 1, 365))  // Days of taxyear
+        mata: ml_Hwage = st_data(., ("`hwage'"))                                        // Hourly wage rates
+        mata: ml_Hours = `totaltime' :- (ml_L1, ml_L2)                                  // Hypothetical hours
+        mata: ml_Sigma = J(1, `n_hecksig', 0)                                           // Estimated variance of Heckman correction
+        forval i = 1/`n_hecksig' {
+            local sig : word `i' of `hecksigma'
+            mata: ml_Sigma[1,`i'] = `sig'
         }
-
+        
         // Tax regression
         if ("`taxreg'" != "") {
-            mata: ml_TaxregB     = st_matrix("`taxreg_from'")                      // Tax regression estimates
-            mata: ml_TaxregIas   = st_data(., tokens(st_local("taxreg_wXias")))    // Interaction variables on m_wage
-            mata: ml_TaxregConst = st_data(., tokens(st_local("taxreg_const")))    // Variables that are independent of m_wage
+            mata: ml_TaxregB    = st_matrix("`taxreg_from'")                                            // Tax regression estimates
+            mata: ml_TaxregIas1 = ("`tria1'" != "" ? st_data(., tokens("`tria1'")) : J(`nobs', 0, 0))   // Interaction variables on m_wage_1
+            mata: ml_TaxregIas2 = ("`tria2'" != "" ? st_data(., tokens("`tria2'")) : J(`nobs', 0, 0))   // Interaction variables on m_wage_2
+            mata: ml_TaxregVars = st_data(., tokens("`taxreg_vars'"))                                   // Variables that are independent of m_wage
         }
     }
     
@@ -360,24 +392,30 @@ mata:
  */
 void lslogit_d2(transmorphic scalar M, real scalar todo, real rowvector B,
                 real scalar lnf, real rowvector G, real matrix H) {
-    external ml_wagep
+    
     external ml_ufunc
     external ml_groups
+    external ml_Y               // Get dependent variable
+    external ml_J
+    external ml_X
+    external ml_Weight
+    
     external ml_draws
     external ml_burn
-    external ml_Sigma
-    external ml_Weight
-    external ml_typ
     external ml_R
     external ml_Rvars
-    external ml_J
-    external ml_TaxregB         // Coefficients of tax regression
-    external ml_TaxregConst     // Wage independent variables of tax regression
-    external ml_TaxregIas       // Wage interaction variables of tax regression
+    external ml_corr
+    
+    external ml_wagep
+    external ml_Wpred
     external ml_Days
     external ml_Hwage
-    external ml_Mwage
     external ml_Hours
+    external ml_Sigma
+    external ml_TaxregB         // Coefficients of tax regression
+    external ml_TaxregVars  // Wage independent variables of tax regression
+    external ml_TaxregIas1  // Wage interaction variables of tax regression
+    external ml_TaxregIas2  // Wage interaction variables of tax regression
     
     external ml_C
     external ml_CX
@@ -387,9 +425,7 @@ void lslogit_d2(transmorphic scalar M, real scalar todo, real rowvector B,
     external ml_L2X
     external ml_Xind
     
-    external ml_X
-    external ml_Y               // Get dependent variable
-    external ml_corr
+    //external ml_typ
     
     
     /* Setup */
@@ -404,7 +440,6 @@ void lslogit_d2(transmorphic scalar M, real scalar todo, real rowvector B,
         integr_a = ((ml_typ == "co_m" | ml_typ == "co_v") ? 1 : 2)
         integr_b = ((ml_typ == "co_f" | ml_typ == "co_v") ? 2 : 1)
     }
-
     c_taxregIas = cols(ml_TaxregIas)
     */
 
@@ -456,7 +491,6 @@ void lslogit_d2(transmorphic scalar M, real scalar todo, real rowvector B,
         
         // Fetch right hand side parts if needed
         if (ml_wagep == 1) {
-            Mwage = ml_Mwage[|i,1\e,.|]
             C     =  ml_C[|i,1\e,1|]   // Get consumption from data
             CX    = (cols(ml_CX)   > 0 ?   ml_CX[|i,1\e,.|] : J(c, 0, 0))
             L1    = ml_L1[|i,1\e,1|]
@@ -488,11 +522,9 @@ void lslogit_d2(transmorphic scalar M, real scalar todo, real rowvector B,
                 // Calculate monthly earnings
                 //
                 
-                // Adjust wages with random draws
-                for (s = integr_a; s <= integr_b; s++) {
-                    Mwage[.,s] = round(((ml_Days[|i,1\e,1|] :/ 12) :/ 7) :* ml_Hours[|i,s\e,s|] :* ml_Hwage[|i,s\e,s|] :* exp(ml_Sigma[1,s] * ml_R[|i,ml_draws*iRV+r\e,ml_draws*iRV+r|]))
-                    iRV = iRV + 1
-                }
+                // Adjust wages with random draws if prediction enabled
+                Mwage = round((ml_Days[|i,1\e,1|] :/ 12 :/ 7) :* ml_Hours[|i,1\e,.|] :* ml_Hwage[|i,1\e,.|] :* exp(cross(ml_Sigma' :* ml_R[|iRV,nRV\iRV,.|]', ml_Wpred[|i,1\e,.|]'))')
+                
                 // Monthly wages to the power of...
                 Mwage2 = Mwage:^2 :/ 100^2
                 Mwage3 = Mwage:^3 :/ 100^3
@@ -504,13 +536,16 @@ void lslogit_d2(transmorphic scalar M, real scalar todo, real rowvector B,
                 //
                 
                 // Container with independent variables for dpi prediction
-                TaxregX = (J(c, 12*c_integr, 0), ml_TaxregConst[|i,1\e,.|], J(c, 1, 1))
-
+                TaxregX = J(c, 0, 0)
+                
                 // Fill matrix of independent variables for dpi prediction
-                for (s = 1; s <= c_integr; s++) {
-                    TaxregX[|1,12*(s-1)+1\c,12*s|] = (Mwage[.,s], Mwage2[.,s], Mwage3[.,s], Mwage4[.,s], Mwage5[.,s], Mwage[.,s] :* ml_TaxregIas[|i,1+(s-1)*c_taxregIas/c_integr\e,s*c_taxregIas/c_integr|])
+                for (s = 1; s <= cols(ml_Wpred); s++) {
+                    TaxregX = (TaxregX, Mwage[.,s], Mwage2[.,s], Mwage3[.,s], Mwage4[.,s], Mwage5[.,s])
+                    if      (s == 1) TaxregX = (TaxregX, Mwage[.,s] :* ml_TaxregIas1[|i,1\e,.|])
+                    else if (s == 2) TaxregX = (TaxregX, Mwage[.,s] :* ml_TaxregIas2[|i,1\e,.|])
                 }
-
+                TaxregX = (TaxregX, ml_TaxregVars[|i,1\e,.|], J(c, 1, 1))
+                
                 // Predict disposable income (can't be negative!)
                 C = rowmax(((TaxregX * ml_TaxregB'), J(c, 1, 1)))
                 
