@@ -502,7 +502,8 @@ void lslogit_d2(transmorphic scalar M, real scalar todo, real rowvector B,
                 //
                 
                 // Adjust wages with random draws if prediction enabled
-                Mwage = round((ml_Days[|i,1\e,1|] :/ 12 :/ 7) :* ml_Hours[|i,1\e,.|] :* ml_Hwage[|i,1\e,.|] :* exp(cross(ml_Sigma' :* ml_R[|iRV,nRV\iRV,.|]', ml_Wpred[|i,1\e,.|]'))')
+                Mwage = (ml_Days[|i,1\e,1|] :/ 12 :/ 7) :* ml_Hours[|i,1\e,.|] :* ml_Hwage[|i,1\e,.|] :* exp(cross(ml_Sigma' :* ml_R[|iRV,nRV\iRV,.|]', ml_Wpred[|i,1\e,.|]'))'
+                //Mwage = round(Mwage)
                 
                 // Monthly wages to the power of...
                 Mwage2 = Mwage:^2 :/ 100^2

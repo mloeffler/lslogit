@@ -1,6 +1,10 @@
+di as error _n(5) "###############################################################################"
+di as error       "###############################################################################"
+di as error       "###############################################################################" _n(5)
+
 local y choice
 local group hhnrakt
-local typlist co_m co_f co_v //sg_m sg_f 
+local typlist sg_m sg_f co_m co_f co_v
 local draws 10
 
 local x_sg_m age_m age2_m handc_m
