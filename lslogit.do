@@ -43,7 +43,7 @@ cap program drop lslogit_Estimate
  * @param `burn' integer Number of initial Halton draws to burn
  */
 program define lslogit_Estimate, eclass
-    syntax varname(numeric) [if] [in] [fweight/], GRoup(varname numeric) Ufunc(name)                          ///
+    syntax varname(numeric) [if] [in] [fweight/], GRoup(varname numeric) Ufunc(name) round                          ///
                                                   Consumption(varname numeric) Leisure(varlist numeric min=1 max=2)          ///
                                                   [cx(varlist numeric) l1x(varlist numeric) l2x(varlist numeric) INDeps(varlist)          ///
                                                    TOTALTime(integer 80) HWage(varlist numeric min=1 max=2) HECKSIGma(numlist min=1 max=2) tria1(varlist numeric) tria2(varlist numeric) ///
@@ -250,6 +250,9 @@ program define lslogit_Estimate, eclass
     sort `group' //`leisure'
     
     // Setup data
+    mata: ml_round  = ("`round'" != "")                                                 // DEBUG
+    
+    
     mata: ml_ufunc  = st_local("ufunc")                                                 // Utility function
     mata: ml_Weight = ("`exp'" != "" ? st_data(., st_local("exp")) : J(`nobs', 1, 1))   // Weight
     mata: ml_Y      = st_data(., st_local("varlist"))                                   // Left hand side
@@ -419,6 +422,9 @@ void lslogit_d2(transmorphic scalar M, real scalar todo, real rowvector B,
     external ml_L2X
     external ml_Xind
     
+    // DEBUG
+    external ml_round
+    
     
     /* Setup */
     
@@ -502,7 +508,9 @@ void lslogit_d2(transmorphic scalar M, real scalar todo, real rowvector B,
                 //
                 
                 // Adjust wages with random draws if prediction enabled
-                Mwage = round((ml_Days[|i,1\e,1|] :/ 12 :/ 7) :* ml_Hours[|i,1\e,.|] :* ml_Hwage[|i,1\e,.|] :* exp(cross(ml_Sigma' :* ml_R[|iRV,nRV\iRV,.|]', ml_Wpred[|i,1\e,.|]'))')
+                Mwage = (ml_Days[|i,1\e,1|] :/ 12 :/ 7) :* ml_Hours[|i,1\e,.|] :* ml_Hwage[|i,1\e,.|] :* exp(cross(ml_Sigma' :* ml_R[|iRV,nRV\iRV,.|]', ml_Wpred[|i,1\e,.|]'))'
+                
+                if (ml_round == 1) Mwage = round(Mwage)
                 
                 // Monthly wages to the power of...
                 Mwage2 = Mwage:^2 :/ 100^2

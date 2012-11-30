@@ -1,6 +1,10 @@
+di as error _n(5) "###############################################################################"
+di as error       "###############################################################################"
+di as error       "###############################################################################" _n(5)
+
 local y choice
 local group hhnrakt
-local typlist co_m co_f co_v //sg_m sg_f 
+local typlist sg_m sg_f co_m co_f co_v
 local draws 10
 
 local x_sg_m age_m age2_m handc_m
@@ -81,7 +85,7 @@ foreach ufunc in tran {
             local r = `rvC' + `r' + `x2' + 2
             local rvL `rvL' `r'
         }
-        lslogit `y' if ${cond_`typ'} & !gino, group(`group') ufunc(`ufunc') c(consum) cx(`x_`typ'') l(`l') `lx' ind(`i_`typ'') rand(`rvC' `rvL') iterate(20) dr(`draws') corr
+        //lslogit `y' if ${cond_`typ'} & !gino, group(`group') ufunc(`ufunc') c(consum) cx(`x_`typ'') l(`l') `lx' ind(`i_`typ'') rand(`rvC' `rvL') iterate(20) dr(`draws') corr
         
         
         //
@@ -96,7 +100,17 @@ foreach ufunc in tran {
                                                                   taxreg(taxreg_`typ')              ///
                                                                   `tria'                            ///
                                                                   hecksigma(`hecksigma')            ///
-                                                                  wagep(`wagep') hwage(`hwage')
+                                                                  wagep(`wagep') hwage(`hwage') iterate(30)
+        
+        lslogit `y' if ${cond_`typ'} & !gino [fw=BSweight$BS], group(`group') ufunc(`ufunc')     ///
+                                                                  c(consum) cx(`x_`typ'')           ///
+                                                                  l(`l') `lx' ind(`i_`typ'')        ///
+                                                                  rand(`rvC' `rvL') corr            ///
+                                                                  dr(`draws')                       ///
+                                                                  taxreg(taxreg_`typ')              ///
+                                                                  `tria'                            ///
+                                                                  hecksigma(`hecksigma')            ///
+                                                                  wagep(`wagep') hwage(`hwage') round iterate(30)
     }
 }
 
