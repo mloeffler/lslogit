@@ -100,7 +100,7 @@ foreach ufunc in tran {
                                                                   taxreg(taxreg_`typ')              ///
                                                                   `tria'                            ///
                                                                   hecksigma(`hecksigma')            ///
-                                                                  wagep(`wagep') hwage(`hwage') iterate(30)
+                                                                  wagep(`wagep') hwage(`hwage') round iterate(30)
         
         lslogit `y' if ${cond_`typ'} & !gino [fw=BSweight$BS], group(`group') ufunc(`ufunc')     ///
                                                                   c(consum) cx(`x_`typ'')           ///
@@ -110,7 +110,7 @@ foreach ufunc in tran {
                                                                   taxreg(taxreg_`typ')              ///
                                                                   `tria'                            ///
                                                                   hecksigma(`hecksigma')            ///
-                                                                  wagep(`wagep') hwage(`hwage') round iterate(30)
+                                                                  wagep(`wagep') hwage(`hwage') iterate(30)
     }
 }
 
