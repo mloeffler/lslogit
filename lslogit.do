@@ -196,23 +196,18 @@ program define lslogit_Estimate, eclass
         if (`n_leisure' == 2) local leisurelist l1 l2
         else                  local leisurelist l1
         foreach ia in c `leisurelist' {
-            if ("`ia'" != "c") local cxl `c'
-            else               local cxl
-            foreach var in ``ia'x' ``ia'' 0 `cxl' {
-                if ("`var'" != "0") {
-                    tempvar `ia'X`var'
-                    qui gen ``ia'X`var'' = ``ia'' * `var' if `touse'
-                    local initrhs `initrhs' ``ia'X`var''
+            foreach var in ``ia'x' ``ia'' 0 {
+                if ("`var'" != "0") local initrhs `initrhs' c.``ia''#c.`var'
+                else                local initrhs `initrhs' ``ia''
+            }
+            if ("`ia'" == "c") {
+                foreach lei of local leisurelist {
+                    local initrhs `initrhs' c.`c'#c.``lei''
                 }
-                else local initrhs `initrhs' ``ia''
             }
         }
         // Leisure cross term
-        if (`n_leisure' == 2) {
-            tempvar l1Xl2
-            qui gen `l1Xl2' = `l1' * `l2' if `touse'
-            local initrhs `initrhs' `l1Xl2'
-        }
+        if (`n_leisure' == 2) local initrhs `initrhs' c.`l1'#c.`l2'
         // Add independent variables to var list
         local initrhs `initrhs' `indeps'
         
@@ -264,16 +259,14 @@ program define lslogit_Estimate, eclass
     }
     mata: ml_Xind = (`n_indeps' > 0 ? st_data(., tokens(st_local("indeps"))) : J(`nobs', 0, 0)) // Dummy variables
     if ("`ufunc'" == "tran") {                                                                  // Right hand side (translog)
-        mata: ml_X = (ml_CX :*log(ml_C),  log(ml_C) :^2, log(ml_C),                         ///
-                      ml_L1X:*log(ml_L1), log(ml_L1):^2, log(ml_L1), log(ml_L1):*log(ml_C), ///
-                      ml_L2X:*log(ml_L2), log(ml_L2):^2, log(ml_L2), log(ml_L2):*log(ml_C), ///
-                                                                     log(ml_L1):*log(ml_L2), ml_Xind)
+        mata: ml_X = (log(ml_C)  :* (ml_CX,  log(ml_C),  J(`nobs', 1, 1),  log(ml_L1), log(ml_L2)),  ///
+                      log(ml_L1) :* (ml_L1X, log(ml_L1), J(`nobs', 1, 1)),                           ///
+                      log(ml_L2) :* (ml_L2X, log(ml_L2), J(`nobs', 1, 1)), log(ml_L1):*log(ml_L2), ml_Xind)
     }
     else if ("`ufunc'" == "quad") {                                                             // Right hand side (quad)
-        mata: ml_X = (ml_CX :*ml_C,  ml_C :^2, ml_C,                ///
-                      ml_L1X:*ml_L1, ml_L1:^2, ml_L1, ml_L1:*ml_C,  ///
-                      ml_L2X:*ml_L2, ml_L2:^2, ml_L2, ml_L2:*ml_C,  ///
-                                                      ml_L1:*ml_L2, ml_Xind)
+        mata: ml_X = (ml_C  :* (ml_CX,  ml_C,  J(`nobs', 1, 1),  ml_L1, ml_L2), ///
+                      ml_L1 :* (ml_L1X, ml_L1, J(`nobs', 1, 1)),                ///
+                      ml_L2 :* (ml_L2X, ml_L2, J(`nobs', 1, 1)), ml_L1:*ml_L2, ml_Xind)
     }
     else mata: ml_X = J(`nobs', 0, 0)
     
@@ -340,11 +333,12 @@ program define lslogit_Estimate, eclass
     local eq_consum (C: `varlist' = `cx' `consumption')                 // Consumption
     local eq_leisure
     foreach var of local leisure {
-        local i = 1 + (strpos("`leisure'", "`var'") > 1)                // Leisure
-        local eq_leisure `eq_leisure' (L`i': `l`i'x' `var') /CXL`i'     // Consumption X leisure interaction
+        local i = 1 + (strpos("`leisure'", "`var'") > 1)                
+        local eq_leisure `eq_leisure' (L`i': `l`i'x' `var')             // Leisure
+        local eq_consum  `eq_consum' /CXL`i'                            // Consumption X leisure interaction
     }
-    if (`n_leisure' == 2) local eq_leisure  `eq_leisure' /L1XL2        // Leisure term interaction
-    if (`n_indeps'  > 0)  local eq_indeps (IND: `indeps', noconst)     // Independent variables / dummies
+    if (`n_leisure' == 2) local eq_leisure  `eq_leisure' /L1XL2         // Leisure term interaction
+    if (`n_indeps'  > 0)  local eq_indeps (IND: `indeps', noconst)      // Independent variables / dummies
     // Random coefficients
     if (`n_randvars' > 0) {
         local eq_rands
@@ -497,23 +491,23 @@ void lslogit_d2(transmorphic scalar M, real scalar todo, real rowvector B,
         e   = i + c - 1
         Yn  = ml_Y[|i,1\e,1|]
         Xnr = ml_X[|i,1\e,.|]
-        Wn  = J(c, cols(Hwage), 1) :* cross(Yn, Hwage[|i,1\e,.|])
         
         // Fetch right hand side parts if needed
         if (ml_wagep == 1 | ml_heckm == 1) {
-            C     =  ml_C[|i,1\e,1|]   // Get consumption from data
-            CX    = (cols(ml_CX)   > 0 ?   ml_CX[|i,1\e,.|] : J(c, 0, 0))
-            L1    = ml_L1[|i,1\e,1|]
-            L1X   = (cols(ml_L1X)  > 0 ?  ml_L1X[|i,1\e,.|] : J(c, 0, 0))
-            L2    = (cols(ml_L2)   > 0 ?   ml_L2[|i,1\e,1|] : J(c, 0, 0))
-            L2X   = (cols(ml_L2X)  > 0 ?  ml_L2X[|i,1\e,.|] : J(c, 0, 0))
-            Xind  = (cols(ml_Xind) > 0 ? ml_Xind[|i,1\e,.|] : J(c, 0, 0))
+            C    =  ml_C[|i,1\e,1|]   // Get consumption from data
+            CX   = (cols(ml_CX)   > 0 ?   ml_CX[|i,1\e,.|] : J(c, 0, 0))
+            L1   = ml_L1[|i,1\e,1|]
+            L1X  = (cols(ml_L1X)  > 0 ?  ml_L1X[|i,1\e,.|] : J(c, 0, 0))
+            L2   = (cols(ml_L2)   > 0 ?   ml_L2[|i,1\e,1|] : J(c, 0, 0))
+            L2X  = (cols(ml_L2X)  > 0 ?  ml_L2X[|i,1\e,.|] : J(c, 0, 0))
+            Xind = (cols(ml_Xind) > 0 ? ml_Xind[|i,1\e,.|] : J(c, 0, 0))
+            Wn   = J(c, cols(Hwage), 1) :* cross(Yn, Hwage[|i,1\e,.|])
         }
         
         // Sum over draws
         lsum = 0
         Gsum = J(1, cols(B), 0)
-        if (ml_draws == 1) Hsum = J(cols(B), cols(B), 0)
+        if (ml_draws == 1 & 1 == 0) Hsum = J(cols(B), cols(B), 0)
         else {
             H1sum = J(1, cols(B), 0)
             H2sum = J(cols(B), cols(B), 0)
@@ -566,8 +560,12 @@ void lslogit_d2(transmorphic scalar M, real scalar todo, real rowvector B,
                 C = rowmax(((TaxregX * ml_TaxregB'), J(c, 1, 1)))
                 
                 // Build matrix with independent variables
-                if      (ml_ufunc == "tran") Xnr = (CX:*log(C), log(C):^2, log(C), L1X:*log(L1), log(L1):^2, log(L1), log(L1):*log(C), L2X:*log(L2), log(L2):^2, log(L2), log(L2):*log(C), log(L1):*log(L2), Xind)
-                else if (ml_ufunc == "quad") Xnr = (CX:*C, C:^2, C, L1X:*L1, L1:^2, L1, L1:*C, L2X:*L2, L2:^2, L2, L2:*C, L1:*L2, Xind)
+                if      (ml_ufunc == "tran") Xnr = (log(C)  :* (CX,  log(C),  J(c, 1, 1),  log(L1), log(L2)),
+                                                    log(L1) :* (L1X, log(L1), J(c, 1, 1)),
+                                                    log(L2) :* (L2X, log(L2), J(c, 1, 1)), log(L1):*log(L2), Xind)
+                else if (ml_ufunc == "quad") Xnr = (C  :* (CX,  C,  J(c, 1, 1),  L1, L2),
+                                                    L1 :* (L1X, L1, J(c, 1, 1)),
+                                                    L2 :* (L2X, L2, J(c, 1, 1)), L1:*L2, Xind)
             }
             
             
@@ -597,36 +595,46 @@ void lslogit_d2(transmorphic scalar M, real scalar todo, real rowvector B,
             if (todo >= 1) {
                 // Utility
                 Gnr = pni * colsum(YmPn :* Xnr)
+                
                 // Random components
                 for (rv = 1; rv <= rvars; rv++) {
                     nCols = (ml_corr == 1 ? rvars - rv + 1 : 1)
                     Gnr   = (Gnr, pni * cross(YmPn, Xnr[.,ml_Rvars[|rv,1\rv+nCols-1,1|]]) * ml_R[iRV,rv])
                 }
-                if (C != (TaxregX * ml_TaxregB')) {
-                    printf("##############################################################\n");
-                    ml_C[|i,1\e,1|], Wn, (TaxregX * ml_TaxregB'), C
-                    (CX, 2*C, J(c, 1, 1), L1), ((CX, 2*C, J(c, 1, 1), L1) * Beta[1,(1,2,3,4,5,11)]')
-                    Beta[1,(1,2,3,4,5,11)]
-                    (J(c, 1, 1), 2 :* Mwage :/ 100^2, 3 :* Mwage2 :/ 100, 4 :* Mwage3 :/ 100, 5 :* Mwage4 :/ 100, ml_TaxregIas1[|i,1\e,.|]), ((J(c, 1, 1), 2 :* Mwage, 3 :* Mwage2, 4 :* Mwage3, 5 :* Mwage4, ml_TaxregIas1[|i,1\e,.|]) * ml_TaxregB[|1,1\1,5+cols(ml_TaxregIas1)|]')
-                    ml_TaxregB[|1,1\1,5+cols(ml_TaxregIas1)|]
-                    (ml_Days[|i,1\e,1|] :/ 12 :/ 7) :* ml_Hours[|i,1\e,.|]
-                    Wn
-                    ml_HeckmVars[|i,1\e,.|]
-                }
+                
                 // Heckman?
-                if (ml_heckm == 1) Gnr = (Gnr, pni * colsum(YmPn :* ((CX, 2*C, J(c, 1, 1), L1) * Beta[1,(1,2,3,4,5,11)]') :*
-                                                                    ((J(c, 1, 1), 2 :* Mwage :/ 100^2, 3 :* Mwage2 :/ 100, 4 :* Mwage3 :/ 100, 5 :* Mwage4 :/ 100, ml_TaxregIas1[|i,1\e,.|]) * ml_TaxregB[|1,1\1,5+cols(ml_TaxregIas1)|]') :*
-                                                                    (ml_Days[|i,1\e,1|] :/ 12 :/ 7) :* ml_Hours[|i,1\e,.|] :* Wn :* ml_HeckmVars[|i,1\e,.|]))
+                if (ml_heckm == 1) {
+                    if (C != (TaxregX * ml_TaxregB')) {
+                        printf("##############################################################\n");
+                        ml_C[|i,1\e,1|], Wn, (TaxregX * ml_TaxregB'), C
+                        (CX, 2*C, J(c, 1, 1), L1), ((CX, 2*C, J(c, 1, 1), L1) * Beta[1,(1,2,3,4,5,11)]')
+                        Beta[1,(1,2,3,4,5,11)]
+                        (J(c, 1, 1), 2 :* Mwage :/ 100^2, 3 :* Mwage2 :/ 100, 4 :* Mwage3 :/ 100, 5 :* Mwage4 :/ 100, ml_TaxregIas1[|i,1\e,.|]), ((J(c, 1, 1), 2 :* Mwage, 3 :* Mwage2, 4 :* Mwage3, 5 :* Mwage4, ml_TaxregIas1[|i,1\e,.|]) * ml_TaxregB[|1,1\1,5+cols(ml_TaxregIas1)|]')
+                        ml_TaxregB[|1,1\1,5+cols(ml_TaxregIas1)|]
+                        (ml_Days[|i,1\e,1|] :/ 12 :/ 7) :* ml_Hours[|i,1\e,.|]
+                        Wn
+                        ml_HeckmVars[|i,1\e,.|]
+                    }
+                    // d(Unr)/d(Bw)
+                    DUdBw = ((CX, 2*C, J(c, 1, 1), L1) * Beta[|1,1\1,cols(CX) + 3 + cols(L2)|]') :*
+                            ((J(c, 1, 1), 2 :* Mwage :/ 100^2, 3 :* Mwage2 :/ 100, 4 :* Mwage3 :/ 100, 5 :* Mwage4 :/ 100, ml_TaxregIas1[|i,1\e,.|]) * ml_TaxregB[|1,1\1,5+cols(ml_TaxregIas1)|]') :*
+                            (ml_Days[|i,1\e,1|] :/ 12 :/ 7) :* ml_Hours[|i,1\e,.|] :* Wn :* ml_HeckmVars[|i,1\e,.|]
+                    Gnr = (Gnr, pni * colsum(YmPn :* DUdBw))
+                }
+                
                 // Total
                 Gsum = Gsum + Gnr
             }
             
             // Calculate Hessian matrix
             if (todo == 2) {
-                if (ml_draws == 1) Hsum = Hsum - cross(Pnr :* Xnr, Xnr :- PXn)
+                if (ml_draws == 1 & 1 == 0) Hsum = Hsum - cross(Pnr :* Xnr, Xnr :- PXn)
                 else {
+                    // Utility
                     H1nr = - pni :* (YXn - PXn)
                     H2nr =   pni :* (cross(YXn - PXn, cross(YmPn, Xnr)) - cross(Pnr :* Xnr, Xnr :- PXn))
+                    
+                    // Random components
                     S1xy = J(1, 0, 0)
                     S2xx = J((ml_corr == 1 ? brnd : 0), (ml_corr == 1 ? brnd : 1), 0)
                     S2xy = J(0, cols(H2nr), 0)
@@ -660,10 +668,29 @@ void lslogit_d2(transmorphic scalar M, real scalar todo, real rowvector B,
                         }
                         S2xx = invvech(S2xx)
                     }
-                    H1sum = H1sum + (H1nr, S1xy)
-                    H2sum = H2sum + (H2nr, S2xy' \ S2xy, S2xx)
+                    
+                    // Heckman
+                    if (ml_heckm == 1) {
+                        DXdWn   = (CX, 2*C, J(c, 1, 1), L1, J(c, cols(Xnr) - (cols(CX) + 3 + cols(L2)), 0)) :*
+                                  ((J(c, 1, 1), 2 :* Mwage :/ 100^2, 3 :* Mwage2 :/ 100, 4 :* Mwage3 :/ 100, 5 :* Mwage4 :/ 100, ml_TaxregIas1[|i,1\e,.|]) * ml_TaxregB[|1,1\1,5+cols(ml_TaxregIas1)|]') :*
+                                  (ml_Days[|i,1\e,1|] :/ 12 :/ 7) :* ml_Hours[|i,1\e,.|]
+                        W1xy = - pni :* (cross(Yn, DUdBw) - cross(Pnr, DUdBw))
+                        W2xy =   pni :* (cross(cross(Yn, DUdBw) - cross(Pnr, DUdBw), cross(YmPn, Xnr)) -
+                                         cross(DUdBw :- cross(Pnr, DUdBw), Pnr :* Xnr) +
+                                         cross(YmPn :* DXdWn, Wn :* ml_HeckmVars[|i,1\e,.|])')
+                        W2xx =   pni :* (cross(cross(Yn, DUdBw) - cross(Pnr, DUdBw), cross(YmPn, DUdBw)) -
+                                         cross(DUdBw :- cross(Pnr, DUdBw), Pnr :* DUdBw) +
+                                         cross(YmPn :* DUdBw, ml_HeckmVars[|i,1\e,.|]))
+                        //W2xx =   pni :* (cross(cross(Yn, DUdBw) - cross(Pnr, DUdBw), cross(YmPn, DUdBw)) - cross(DUdBw :- cross(Pnr, DUdBw), Pnr :* DUdBw))
+                        WSxy = J(0, 0, 0)
+                    }
+                    
+                    // Total
+                    H1sum = H1sum + (H1nr, S1xy, W1xy)
+                    H2sum = H2sum + (H2nr, /*S2xy',*/ W2xy' \ /*S2xy, S2xx, WSxy' \ */W2xy, /*WSxy, */W2xx)
                 }
             }
+            
         }
         
         // Prevent likelihood from becoming exactly zero
@@ -672,7 +699,7 @@ void lslogit_d2(transmorphic scalar M, real scalar todo, real rowvector B,
         // Add to overall statistics
         lnf = lnf + ml_Weight[i,1] * log(lsum / ml_draws)
         if (todo >= 1) G = G + ml_Weight[i,1] * (lsum > 1e-25 ? Gsum / lsum : J(1, cols(G), 0))
-        if (todo == 2) H = H + ml_Weight[i,1] * (lsum > 1e-25 ? (ml_draws == 1 ? Hsum : cross(Gsum, H1sum) / lsum^2 + H2sum / lsum) : J(rows(H), cols(H), 0))
+        if (todo == 2) H = H + ml_Weight[i,1] * (lsum > 1e-25 ? (ml_draws == 1 & 1 == 0 ? Hsum : cross(Gsum, H1sum) / lsum^2 + H2sum / lsum) : J(rows(H), cols(H), 0))
         
         // Next household
         i = i + c
