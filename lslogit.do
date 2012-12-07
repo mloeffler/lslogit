@@ -213,6 +213,7 @@ program define lslogit_Estimate, eclass
         
         // Estimate
         tempname init_from
+        mat `init_from' = J(1, 2 + 2 * `n_leisure' + `n_cxias' + `n_l1xias' + `n_l2xias' + `n_indeps', 0)
         `qui' clogit `varlist' `initrhs' if `touse' `wgt', group(`group') iterate(25)
         if (e(converged) == 1) {
             // Save results
@@ -220,10 +221,24 @@ program define lslogit_Estimate, eclass
             local nobs      = e(N)
             local k         = e(k)
             local ll        = e(ll)
-            local initopt     init(`init_from', copy) obs(`nobs') lf0(`k' `ll')
             // Update sample
             qui replace `touse' = e(sample)
         }
+        
+        // Wage equation
+        tempname init_wage
+        if (`n_hwage' == 0) mat `init_wage' = J(1, 1 + `n_heckvars' * `n_leisure', 0)
+        else {
+            foreach w of local hwage {
+                tempvar ln`w'
+                qui gen `ln`w'' = ln(`w') if `touse'
+                `qui' reg `ln`w'' `heckman' if `touse' `wgt'
+                mat `init_wage' = (nullmat(`init_wage'), e(b))
+            }
+        }
+        
+        // Save init options
+        local initopt init(`init_from', copy) obs(`nobs') lf0(`k' `ll')
     }
     else {
         qui count if `touse'
@@ -242,10 +257,11 @@ program define lslogit_Estimate, eclass
     sort `group' //`leisure'
     
     // Setup data
-    mata: ml_round  = ("`round'" != "noround")                                          // To round, or not to round?
-    mata: ml_ufunc  = st_local("ufunc")                                                 // Utility function
-    mata: ml_Weight = ("`exp'" != "" ? st_data(., st_local("exp")) : J(`nobs', 1, 1))   // Weight
-    mata: ml_Y      = st_data(., st_local("varlist"))                                   // Left hand side
+    mata: ml_round  = ("`round'" != "noround")                                                      // To round, or not to round?
+    mata: ml_ufunc  = st_local("ufunc")                                                             // Utility function
+    mata: ml_Weight = ("`exp'" != "" ? st_data(., st_local("exp")) : J(`nobs', 1, 1))               // Weight
+    mata: ml_Y      = st_data(., st_local("varlist"))                                               // Left hand side
+    mata: ml_Hwage  = (`n_hwage' > 0 ? st_data(., tokens("`hwage'")) : J(`nobs', `n_leisure', 0))   // Hourly wage rates
     
     //
     // Right hand side
@@ -275,7 +291,7 @@ program define lslogit_Estimate, eclass
     //
     mata: ml_heckm     = ("`joint'" != "" & "`heckman'" != "")                                                      // Run joint estimation?
     mata: ml_HeckmVars = (ml_heckm == 1 ? (st_data(., tokens("`heckman'")), J(`nobs', 1, 1)) : J(`nobs', 0, 0))     // Wage variables
-    mata: ml_Days      = ("`days'" != "" ? st_data(., ("`days'")) : J(`nobs', 1, 365))                              // Days of taxyear
+    mata: ml_Days      = ("`days'" != "" ? st_data(., st_local("days")) : J(`nobs', 1, 365))                        // Days of taxyear
     mata: ml_Hours     = `totaltime' :- (ml_L1, ml_L2)                                                              // Hypothetical hours
     
     //
@@ -284,7 +300,6 @@ program define lslogit_Estimate, eclass
     mata: ml_wagep = `wagep'                                                            // Run Wage Prediction
     if (`wagep' == 1) {
         mata: ml_Wpred = st_data(., ("`wagepred'"))                                     // Dummies enabling or disabling the wage prediction
-        mata: ml_Hwage = st_data(., ("`hwage'"))                                        // Hourly wage rates
         mata: ml_Sigma = J(1, `n_hecksig', 0)                                           // Estimated variance of Heckman correction
         forval i = 1/`n_hecksig' {
             local sig : word `i' of `hecksigma'
@@ -361,8 +376,7 @@ program define lslogit_Estimate, eclass
     if ("`joint'" != "" & "`heckman'" != "") {
         local eq_heckm (lnW: `heckman')
         if ("`select'" != "") local eq_heckm `eq_heckm' (S: `select')
-        if ("`initopt'" != "") mat `init_from' = (`init_from', heck)
-        //if ("`initopt'" != "") mat `init_from' = (`init_from', J(1, `n_heckvars' + 1, 0.0))
+        if ("`initopt'" != "") mat `init_from' = (`init_from', `init_wage')
     }
     
     // Estimate
@@ -604,22 +618,12 @@ void lslogit_d2(transmorphic scalar M, real scalar todo, real rowvector B,
                 
                 // Heckman?
                 if (ml_heckm == 1) {
-                    if (C != (TaxregX * ml_TaxregB')) {
-                        printf("##############################################################\n");
-                        ml_C[|i,1\e,1|], Wn, (TaxregX * ml_TaxregB'), C
-                        (CX, 2*C, J(c, 1, 1), L1), ((CX, 2*C, J(c, 1, 1), L1) * Beta[1,(1,2,3,4,5,11)]')
-                        Beta[1,(1,2,3,4,5,11)]
-                        (J(c, 1, 1), 2 :* Mwage :/ 100^2, 3 :* Mwage2 :/ 100, 4 :* Mwage3 :/ 100, 5 :* Mwage4 :/ 100, ml_TaxregIas1[|i,1\e,.|]), ((J(c, 1, 1), 2 :* Mwage, 3 :* Mwage2, 4 :* Mwage3, 5 :* Mwage4, ml_TaxregIas1[|i,1\e,.|]) * ml_TaxregB[|1,1\1,5+cols(ml_TaxregIas1)|]')
-                        ml_TaxregB[|1,1\1,5+cols(ml_TaxregIas1)|]
-                        (ml_Days[|i,1\e,1|] :/ 12 :/ 7) :* ml_Hours[|i,1\e,.|]
-                        Wn
-                        ml_HeckmVars[|i,1\e,.|]
-                    }
-                    // d(Unr)/d(Bw)
-                    DUdBw = ((CX, 2*C, J(c, 1, 1), L1) * Beta[|1,1\1,cols(CX) + 3 + cols(L2)|]') :*
-                            ((J(c, 1, 1), 2 :* Mwage :/ 100^2, 3 :* Mwage2 :/ 100, 4 :* Mwage3 :/ 100, 5 :* Mwage4 :/ 100, ml_TaxregIas1[|i,1\e,.|]) * ml_TaxregB[|1,1\1,5+cols(ml_TaxregIas1)|]') :*
-                            (ml_Days[|i,1\e,1|] :/ 12 :/ 7) :* ml_Hours[|i,1\e,.|] :* Wn :* ml_HeckmVars[|i,1\e,.|]
-                    Gnr = (Gnr, pni * colsum(YmPn :* DUdBw))
+                    DUdC  = cross((CX, 2*C, J(c, 1, 1), L1)', Beta[|1,1\1,cols(CX) + 3 + cols(L2)|]')
+                    DCdM  = cross((J(c, 1, 1), 2 :* Mwage :/ 100^2, 3 :* Mwage2 :/ 100, 4 :* Mwage3 :/ 100, 5 :* Mwage4 :/ 100, ml_TaxregIas1[|i,1\e,.|])', ml_TaxregB[|1,1\1,5 + cols(ml_TaxregIas1)|]')
+                    DMdH  = (ml_Days[|i,1\e,1|] :/ 12 :/ 7) :* ml_Hours[|i,1\e,.|]
+                    DHdB  = Wn :* ml_HeckmVars[|i,1\e,.|]
+                    DUdBw = DUdC :* DCdM :* DMdH :* DHdB
+                    Gnr   = (Gnr, pni * colsum(YmPn :* DUdBw))
                 }
                 
                 // Total
@@ -670,18 +674,26 @@ void lslogit_d2(transmorphic scalar M, real scalar todo, real rowvector B,
                     }
                     
                     // Heckman
+                    W1xy = J(1, 0, 0)
+                    W2xy = J(0, bfix, 0)
+                    W2xx = J(0, 0, 0)
                     if (ml_heckm == 1) {
                         DXdWn   = (CX, 2*C, J(c, 1, 1), L1, J(c, cols(Xnr) - (cols(CX) + 3 + cols(L2)), 0)) :*
                                   ((J(c, 1, 1), 2 :* Mwage :/ 100^2, 3 :* Mwage2 :/ 100, 4 :* Mwage3 :/ 100, 5 :* Mwage4 :/ 100, ml_TaxregIas1[|i,1\e,.|]) * ml_TaxregB[|1,1\1,5+cols(ml_TaxregIas1)|]') :*
                                   (ml_Days[|i,1\e,1|] :/ 12 :/ 7) :* ml_Hours[|i,1\e,.|]
+                        
+                        D2UdC2 = 2 * Beta[1,cols(CX) + 1]
+                        D2CdM2 = cross((J(c, 1, 2 :/ 100^2), 6 :* Mwage :/ 100^3, 12 :* Mwage2 :/ 100^2, 20 :* Mwage3 :/ 100^2)', ml_TaxregB[|1,2\1,5|]')
+                        D2MdH2 = 0
+                        
+                        YmPnD2UdBw2 = cross(YmPn :* DHdB :* (DMdH:^2 :* (D2UdC2 :* DCdM:^2 :+ DUdC :* D2CdM2) + DUdC :* DCdM :* D2MdH2), DHdB) + cross(YmPn :* DUdC :* DCdM :* DMdH :* DHdB, ml_HeckmVars[|i,1\e,.|])
+                        
                         W1xy = - pni :* (cross(Yn, DUdBw) - cross(Pnr, DUdBw))
                         W2xy =   pni :* (cross(cross(Yn, DUdBw) - cross(Pnr, DUdBw), cross(YmPn, Xnr)) -
                                          cross(DUdBw :- cross(Pnr, DUdBw), Pnr :* Xnr) +
                                          cross(YmPn :* DXdWn, Wn :* ml_HeckmVars[|i,1\e,.|])')
                         W2xx =   pni :* (cross(cross(Yn, DUdBw) - cross(Pnr, DUdBw), cross(YmPn, DUdBw)) -
-                                         cross(DUdBw :- cross(Pnr, DUdBw), Pnr :* DUdBw) +
-                                         cross(YmPn :* DUdBw, ml_HeckmVars[|i,1\e,.|]))
-                        //W2xx =   pni :* (cross(cross(Yn, DUdBw) - cross(Pnr, DUdBw), cross(YmPn, DUdBw)) - cross(DUdBw :- cross(Pnr, DUdBw), Pnr :* DUdBw))
+                                         cross(DUdBw :- cross(Pnr, DUdBw), Pnr :* DUdBw) + YmPnD2UdBw2)
                         WSxy = J(0, 0, 0)
                     }
                     
