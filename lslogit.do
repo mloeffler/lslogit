@@ -32,13 +32,15 @@ program define lslogit_Replay
     syntax [, Level(integer `c(level)')]
     
     // Set up auxiliary stuff
-    /*
     local diparm
     foreach aux in alphaW1 sigmaW1 alphaW2 sigmaW2 dudes {
-        local val = e(`aux')
-        if (e(`aux') != .) local diparm `diparm' diparm(C, f(`val') d(0) label("[`aux']"))
+        if (e(`aux') != .) {
+            local val = e(`aux')
+            if (inlist("`aux'", "alphaW1", "sigmaW1", "alphaW2", "sigmaW2")) local eq lnW
+            else local eq C
+            local diparm `diparm' diparm(`eq', f(`val') d(0) label("[`aux']"))
+        }
     }
-    */
     
     // Display output
     ml display, level(`level') `diparm'
@@ -411,11 +413,9 @@ program define lslogit_Estimate, eclass
     }
     else ereturn scalar corr = 0
     
-    /*
     foreach aux in alphaW1 sigmaW1 alphaW2 sigmaW2 dudes {
         if (r(`aux') != .) ereturn scalar `aux' = r(`aux')
     }
-    */
     
     // Show results
     lslogit_Replay, level(`level')
@@ -527,12 +527,12 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
         Hwage = cross(ml_HeckmVars', Bheck')    // Log-wage prediction
         Hwres = log(ml_Hwage) :- Hwage          // Residuals
         lnCor = colsum(exp(Hwres)) / nobs                   // Intercept
-        //printf("lnCor = " + strofreal(lnCor) + "\n");
-        Wsigm = sqrt(colsum(Hwres:^2)/(nobs - bheck))       // RMSE
-        Hwage = exp(Hwage) * lnCor // or: * exp(Wsigm^2/2)  // Predict wages
+        Wsigm = sqrt(cross(Hwres, Hwres)/(nobs - bheck))    // RMSE
+        //printf("lnCor = " + strofreal(lnCor) + ", exp(Wsigm^2/2) = " + strofreal(exp(Wsigm^2/2)) + "\n");
+        Hwage = exp(Hwage :+ Wsigm^2/2) // * lnCor // or: * exp(Wsigm^2/2)  // Predict wages
         for (c = 1; c <= cols(lnCor); c++) {                // Save intercept/rmse
-            st_numscalar("r(alphaW" + strofreal(c) + ")", lnCor[1,c])
-            //st_numscalar("r(sigmaW" + strofreal(c) + ")", Wsigm[1,c])
+            //st_numscalar("r(alphaW" + strofreal(c) + ")", lnCor[1,c])
+            st_numscalar("r(sigmaW" + strofreal(c) + ")", Wsigm[1,c])
         }
         //if (sum(colmissing(Hwage)) > 0) lnf = .
         //printf("lnCor = " + strofreal(lnCor) + ", meandiff = " + strofreal(mean(ml_Hwage - Hwage)) + "\n");
@@ -662,13 +662,14 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                         Gnr   = (Gnr, pni * cross(YmPn, DUdB[.,ml_Rvars[|rv,1\rv+nCols-1,1|]]) * ml_R[iRV,rv])
                     }
                 }
-
+                
                 // Heckman?
                 if (ml_heckm == 1) {
                     DUdC  = cross((CX, 2*C, J(c, 1, 1), L1, L2)', Beta[|1,1\1,cols(CX) + 3 + cols(L2)|]')
                     DCdM  = cross((J(c, 1, 1), 2 :* Mwage, ml_TaxregIas1[|i,1\e,.|], 2 :* Mwage :* ml_TaxregIas1[|i,1\e,.|])', ml_TaxregB[|1,1\1,2 + 2 * cols(ml_TaxregIas1)|]')
                     DMdH  = (ml_Days[|i,1\e,1|] :/ 12 :/ 7) :* ml_Hours[|i,1\e,.|]
-                    DHdB  = Wn :* (ml_HeckmVars[|i,1\e,.|] :- colsum(ml_HeckmVars :* exp(Hwres)) / (nobs * lnCor))
+                    //DHdB  = Wn :* (ml_HeckmVars[|i,1\e,.|] :- colsum(ml_HeckmVars :* exp(Hwres)) / (nobs * lnCor))
+                    DHdB  = Wn :* (ml_HeckmVars[|i,1\e,.|] :- colsum(ml_HeckmVars :* Hwres) / (nobs - bheck))
                     DUdBw = DUdC :* DCdM :* DMdH :* DHdB
                     Gnr   = (Gnr, pni * colsum(YmPn :* DUdBw))
                 }
@@ -684,11 +685,11 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                     // Utility
                     H1 = - pni :* (YXn - PXn)
                     H2 =   pni :* (cross(YXn - PXn, cross(YmPn, Xnr)) - cross(Pnr :* Xnr, Xnr :- PXn))
-
+                    
                     // Random components
                     S1   = J(1, 0, 0)
                     S2xx = (brnd > 0 ? J((ml_corr == 1 ? brnd : 0), (ml_corr == 1 ? brnd : 1), 0) : J(0, 0, 0))
-                    S2xy = J(0, cols(H2nr), 0)
+                    S2xy = J(0, cols(H2), 0)
                     if (brnd > 0) {
                         if (ml_corr == 1) {
                             iCol = 1
@@ -720,6 +721,8 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                             }
                             S2xx = invvech(S2xx)
                         }
+                        
+                        H2sum = H2sum + (H2, S2xy' \ S2xy, S2xx)
                     }
 
                     // Heckman
@@ -727,28 +730,60 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                     W2xy = J(0, bfix, 0)
                     W2xx = J(0, 0, 0)
                     if (ml_heckm == 1) {
-                        DXdWn   = (CX, 2*C, J(c, 1, 1), L1, J(c, cols(Xnr) - (cols(CX) + 2 + nlei), 0)) :*
-                                  ((J(c, 1, 1), 2 :* Mwage, ml_TaxregIas1[|i,1\e,.|], 2 :* Mwage :* ml_TaxregIas1[|i,1\e,.|]) * ml_TaxregB[|1,1\1,2 + 2 * cols(ml_TaxregIas1)|]') :*
-                                  (ml_Days[|i,1\e,1|] :/ 12 :/ 7) :* ml_Hours[|i,1\e,.|]
-
+                        DXdH   = (CX, 2*C, J(c, 1, 1), L1, J(c, cols(Xnr) - (cols(CX) + 2 + nlei), 0)) :*
+                                 ((J(c, 1, 1), 2 :* Mwage, ml_TaxregIas1[|i,1\e,.|], 2 :* Mwage :* ml_TaxregIas1[|i,1\e,.|]) * ml_TaxregB[|1,1\1,2 + 2 * cols(ml_TaxregIas1)|]') :*
+                                 (ml_Days[|i,1\e,1|] :/ 12 :/ 7) :* ml_Hours[|i,1\e,.|]
                         D2UdC2 = 2 * Beta[1,cols(CX) + 1]
                         D2CdM2 = cross((J(c, 1, 2), 2 :* ml_TaxregIas1[|i,1\e,.|])', (ml_TaxregB[1,2], ml_TaxregB[|1,2 + cols(ml_TaxregIas1) + 1\1,2 + 2 * cols(ml_TaxregIas1)|])')
                         D2MdH2 = 0
-
-                        YmPnD2UdBw2 = cross(YmPn :* DHdB :* (DMdH:^2 :* (D2UdC2 :* DCdM:^2 :+ DUdC :* D2CdM2) + DUdC :* DCdM :* D2MdH2), DHdB) + cross(YmPn :* DUdC :* DCdM :* DMdH :* DHdB, ml_HeckmVars[|i,1\e,.|])
-
+                        
+                        /*YmPnD2UdBw2 = cross(YmPn :* DHdB :* (DMdH:^2 :* (D2UdC2 :* DCdM:^2 :+ DUdC :* D2CdM2) + DUdC :* DCdM :* D2MdH2), DHdB) +
+                                      cross(YmPn :* DUdC :* DCdM :* DMdH :* DHdB, ml_HeckmVars[|i,1\e,.|])*/
+                        // DHdB  = Wn :* (ml_HeckmVars[|i,1\e,.|] :- colsum(ml_HeckmVars :* Hwres) / (nobs - bheck))
+                        /*
+                        D2UdBw2 = cross(DHdB :* (DMdH:^2 :* (D2UdC2 :* DCdM:^2 :+ DUdC :* D2CdM2) + DUdC :* DCdM :* D2MdH2), DHdB) +
+                                  cross(DUdC :* DCdM :* DMdH :* DHdB, ml_HeckmVars[|i,1\e,.|])
+                        */
+                        
+                        YmPnD2UdBw2 = cross(YmPn :* DHdB :* (DMdH:^2 :* (D2UdC2 :* DCdM:^2 :+ DUdC :* D2CdM2) + DUdC :* DCdM :* D2MdH2), DHdB)
+                        for (hv = 1; hv <= bheck; hv++) {
+                            YmPnD2UdBw2[hv,.] = YmPnD2UdBw2[hv,.] + cross(YmPn :* DUdC :* DCdM :* DMdH, DHdB :* (ml_HeckmVars[|i,hv\e,hv|] :- colsum(ml_HeckmVars[.,hv] :* Hwres) / (nobs - bheck)) :+
+                                                                                                        cross(Wn', cross(ml_HeckmVars[.,hv], ml_HeckmVars) :/ (nobs - bheck)))
+                        }
+                        /*
+                        DHdB
+                        ml_HeckmVars[|i,1\e,.|]
+                        colsum(ml_HeckmVars :* Hwres)
+                        Wn
+                        cross(ml_HeckmVars, ml_HeckmVars)
+                        
+                        D2HdB2 = YmPn :* DUdC :* DCdM :* DMdH :* DHdB :* (ml_HeckmVars[|i,1\e,.|] :- colsum(ml_HeckmVars :* Hwres) / (nobs - bheck)) :+
+                                 YmPn :* DUdC :* DCdM :* DMdH :*   Wn :* cross(ml_HeckmVars[|i,1\e,.|], ml_HeckmVars[|i,1\e,.|]) / (nobs - bheck)
+                        YmPn
+                        DUdC
+                        DCdM
+                        DMdH
+                        D2HdB2
+                        */
+                        
+                        //YmPnD2UdBw2 = cross(YmPn :* DHdB :* (DMdH:^2 :* (D2UdC2 :* DCdM:^2 :+ DUdC :* D2CdM2) + DUdC :* DCdM :* D2MdH2), DHdB)
+                        // YmPn :* DUdC :* DCdM :* DMdH :* D2HdB2
+                        
                         W1   = - pni :* (cross(Yn, DUdBw) - cross(Pnr, DUdBw))
                         W2xy =   pni :* (cross(cross(Yn, DUdBw) - cross(Pnr, DUdBw), cross(YmPn, Xnr)) -
                                          cross(DUdBw :- cross(Pnr, DUdBw), Pnr :* Xnr) +
-                                         cross(YmPn :* DXdWn, Wn :* ml_HeckmVars[|i,1\e,.|])')
+                                         cross(YmPn :* DXdH, /*Wn :* ml_HeckmVars[|i,1\e,.|]*/DHdB)')
                         W2xx =   pni :* (cross(cross(Yn, DUdBw) - cross(Pnr, DUdBw), cross(YmPn, DUdBw)) -
                                          cross(DUdBw :- cross(Pnr, DUdBw), Pnr :* DUdBw) + YmPnD2UdBw2)
-                        WSxy = J(0, 0, 0)
+                        
+                        //WSxy = J(0, 0, 0)
+                        H2sum = H2sum + (H2, /*S2xy',*/ W2xy' \ /*S2xy, S2xx, WSxy' \ */W2xy, /*WSxy, */W2xx)
                     }
 
                     // Total
                     H1sum = H1sum + (H1, S1, W1)
-                    H2sum = H2sum + (H2, /*S2xy',*/ W2xy' \ /*S2xy, S2xx, WSxy' \ */W2xy, /*WSxy, */W2xx)
+                    if (brnd == 0 & ml_heckm == 0) H2sum = H2sum + H2
+                    //H2sum = H2sum + (H2, /*S2xy',*/ W2xy' \ /*S2xy, S2xx, WSxy' \ */W2xy, /*WSxy, */W2xx)
                     //H2sum = H2sum + (H2, S2xy' \ S2xy, S2xx)
                 }
             }
