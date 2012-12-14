@@ -29,16 +29,16 @@ cap program drop lslogit_Replay
  * @param `taxreg' Stored estimates of the tax regression
  */
 program define lslogit_Replay
-    syntax [, Level(integer `c(level)')]
+    syntax [, Level(integer `c(level)') Quiet]
     
     // Set up auxiliary stuff
     local diparm
-    foreach aux in alphaW1 sigmaW1 alphaW2 sigmaW2 dudes {
-        if (e(`aux') != .) {
-            local val = e(`aux')
-            if (inlist("`aux'", "alphaW1", "sigmaW1", "alphaW2", "sigmaW2")) local eq lnW
-            else local eq C
-            local diparm `diparm' diparm(`eq', f(`val') d(0) label("[`aux']"))
+    if ("`quiet'" == "") {
+        foreach aux in sigmaW1 sigmaW2 dudes {
+            if (e(`aux') != .) {
+                local val = e(`aux')
+                local diparm `diparm' diparm(__lab__, value(`val') label("[`aux']"))
+            }
         }
     }
     
@@ -56,21 +56,27 @@ cap program drop lslogit_Estimate
  * @param `burn' integer Number of initial Halton draws to burn
  */
 program define lslogit_Estimate, eclass
-    syntax varname(numeric) [if] [in] [fweight/], GRoup(varname numeric) Ufunc(name)                           ///
-                                                  Consumption(varname numeric) Leisure(varlist numeric min=1 max=2)          ///
-                                                  [cx(varlist numeric) l1x(varlist numeric) l2x(varlist numeric) INDeps(varlist) noround         ///
-                                                   TOTALTime(integer 80) HWage(varlist numeric min=1 max=2) HECKSIGma(numlist min=1 max=2) tria1(varlist numeric) tria2(varlist numeric) ///
-                                                   difficult trace search(name) iterate(integer 100) corr DAYs(varname numeric) ///
-                                                   Level(integer `c(level)') gradient hessian debug burn(integer 15)        ///
-                                                   DRaws(integer 50) Verbose WAGEPred(varlist numeric min=1 max=2) TAXReg(name) TAXBen(name) RANDvars(string) method(name) ///
-                                                   joint HECKMan(varlist) SELect(varlist)]
+    syntax varname(numeric) [if] [in] [fweight/], GRoup(varname numeric) Ufunc(name)                                    ///
+                                                  Consumption(varname numeric) Leisure(varlist numeric min=1 max=2)     ///
+                                                  [cx(varlist numeric)  lx1(varlist numeric)  lx2(varlist numeric)      ///
+                                                   c2x(varlist numeric) l2x1(varlist numeric) l2x2(varlist numeric)     ///
+                                                   INDeps(varlist) TOTALTime(integer 80) DAYs(varname numeric)          ///
+                                                   HWage(varlist numeric min=1 max=2)                                   ///
+                                                   TAXReg(name) tria1(varlist numeric) tria2(varlist numeric)           ///
+                                                   WAGEPred(varlist numeric min=1 max=2) HECKSIGma(numlist min=1 max=2) ///
+                                                   RANDvars(string) corr DRaws(integer 50) burn(integer 15)             ///
+                                                   joint HECKMan(varlist) SELect(varlist)                               ///
+                                                   noround Quiet Verbose                                                ///
+                                                   difficult trace search(name) iterate(integer 100) method(name)       ///
+                                                   gradient hessian debug Level(integer `c(level)')]
     
     /* INITIALIZE ESTIMATOR
      */
     
     // Mark the estimation sample
     marksample touse
-    markout `touse' `varlist' `group' `consumption' `leisure' `cx' `l1x' `l2x' `indeps' `wagepred' `days' `hwage' `tria1' `tria2' `heckman' `select'
+    markout `touse' `varlist' `group' `consumption' `leisure' `cx' `lx1' `lx2' `c2x' `l2x1' `l2x2'  ///
+                    `indeps'`wagepred' `days' `hwage' `tria1' `tria2' `heckman' `select'
     
     // Verbose mode
     if ("`verbose'" == "") local qui qui
@@ -111,8 +117,11 @@ program define lslogit_Estimate, eclass
     // Get variable count
     local n_leisure  : word count `leisure'
     local n_cxias    : word count `cx'
-    local n_l1xias   : word count `l1x'
-    local n_l2xias   : word count `l2x'
+    local n_lx1ias   : word count `lx1'
+    local n_lx2ias   : word count `lx2'
+    local n_c2xias   : word count `c2x'
+    local n_l2x1ias  : word count `l2x1'
+    local n_l2x2ias  : word count `l2x2'
     local n_indeps   : word count `indeps'
     local n_randvars : word count `randvars'
     local n_wagep    : word count `wagepred'
@@ -209,9 +218,16 @@ program define lslogit_Estimate, eclass
         if (`n_leisure' == 2) local leisurelist l1 l2
         else                  local leisurelist l1
         foreach ia in c `leisurelist' {
-            foreach var in ``ia'x' ``ia'' 0 {
+            local f = substr("`ia'", 1, 1)
+            if (strlen("`ia'") == 2) local l = substr("`ia'", 2, 1)
+            else local l
+            foreach var in ``f'x`l'' 0 {
                 if ("`var'" != "0") local initrhs `initrhs' c.``ia''#c.`var'
                 else                local initrhs `initrhs' ``ia''
+            }
+            foreach var in ``f'2x`l'' 0 {
+                if ("`var'" != "0") local initrhs `initrhs' c.``ia''#c.``ia''#c.`var'
+                else                local initrhs `initrhs' c.``ia''#c.``ia''
             }
             if ("`ia'" == "c") {
                 foreach lei of local leisurelist {
@@ -226,7 +242,7 @@ program define lslogit_Estimate, eclass
         
         // Estimate
         tempname init_from
-        mat `init_from' = J(1, 2 + 2 * `n_leisure' + `n_cxias' + `n_l1xias' + `n_l2xias' + `n_indeps', 0)
+        mat `init_from' = J(1, 2 + 2 * `n_leisure' + `n_cxias' + `n_lx1ias' + `n_lx2ias' + `n_indeps', 0)
         `qui' clogit `varlist' `initrhs' if `touse' `wgt', group(`group') iterate(25)
         if (e(converged) == 1) {
             // Save results
@@ -247,7 +263,6 @@ program define lslogit_Estimate, eclass
                     tempvar ln`w' predln`w' pred`w'
                     qui gen `ln`w'' = ln(`w') if `touse'
                     `qui' reg `ln`w'' `heckman' if `touse' `wgt'
-                    di "RMSE = " e(rmse) ", alpha = " exp(e(rmse)^2/2)
                     mat `init_wage' = (nullmat(`init_wage'), e(b))
                 }
             }
@@ -282,23 +297,25 @@ program define lslogit_Estimate, eclass
     //
     // Right hand side
     //
-    mata: ml_C  = st_data(., st_local("consumption"))                                           // Consumption
-    mata: ml_CX = (`n_cxias' > 0 ? st_data(., tokens(st_local("cx"))) : J(`nobs', 0, 0))        // Interactions with consumption
+    mata: ml_C   = st_data(., st_local("consumption"))                                          // Consumption
+    mata: ml_CX  = (`n_cxias'  > 0 ? st_data(., tokens(st_local("cx")))  : J(`nobs', 0, 0))     // Interactions with consumption
+    mata: ml_C2X = (`n_c2xias' > 0 ? st_data(., tokens(st_local("c2x"))) : J(`nobs', 0, 0))     // Interactions with consumption^2
     forval i = 1/2 {                                                                            // Leisure and interactions
         local var : word `i' of `leisure'
-        mata: ml_L`i'  = ("`var'"     != "" ? st_data(., st_local("var")) : J(`nobs', 0, 0))
-        mata: ml_L`i'X = (`n_l`i'xias' >  0 ? st_data(., tokens(st_local("l`i'x"))) : J(`nobs', 0, 0))
+        mata: ml_L`i'   = ("`var'"      != "" ? st_data(., st_local("var"))            : J(`nobs', 0, 0))
+        mata: ml_LX`i'  = (`n_lx`i'ias'  >  0 ? st_data(., tokens(st_local("lx`i'")))  : J(`nobs', 0, 0))
+        mata: ml_L2X`i' = (`n_l2x`i'ias' >  0 ? st_data(., tokens(st_local("l2x`i'"))) : J(`nobs', 0, 0))
     }
     mata: ml_Xind = (`n_indeps' > 0 ? st_data(., tokens(st_local("indeps"))) : J(`nobs', 0, 0)) // Dummy variables
     if ("`ufunc'" == "tran") {                                                                  // Right hand side (translog)
-        mata: ml_X = (log(ml_C)  :* (ml_CX,  log(ml_C),  J(`nobs', 1, 1),  log(ml_L1), log(ml_L2)),  ///
-                      log(ml_L1) :* (ml_L1X, log(ml_L1), J(`nobs', 1, 1)),                           ///
-                      log(ml_L2) :* (ml_L2X, log(ml_L2), J(`nobs', 1, 1)), log(ml_L1):*log(ml_L2), ml_Xind)
+        mata: ml_X = (log(ml_C)  :* (ml_CX,  J(`nobs', 1, 1), log(ml_C) :*ml_C2X,  log(ml_C),   log(ml_L1), log(ml_L2)),          ///
+                      log(ml_L1) :* (ml_LX1, J(`nobs', 1, 1), log(ml_L1):*ml_L2X1, log(ml_L1)), ///
+                      log(ml_L2) :* (ml_LX2, J(`nobs', 1, 1), log(ml_L2):*ml_L2X2, log(ml_L2)), log(ml_L1):*log(ml_L2), ml_Xind)
     }
     else if ("`ufunc'" == "quad") {                                                             // Right hand side (quad)
-        mata: ml_X = (ml_C  :* (ml_CX,  ml_C,  J(`nobs', 1, 1),  ml_L1, ml_L2), ///
-                      ml_L1 :* (ml_L1X, ml_L1, J(`nobs', 1, 1)),                ///
-                      ml_L2 :* (ml_L2X, ml_L2, J(`nobs', 1, 1)), ml_L1:*ml_L2, ml_Xind)
+        mata: ml_X = (ml_C  :* (ml_CX,  J(`nobs', 1, 1), ml_C :*ml_C2X,  ml_C,   ml_L1, ml_L2),              ///
+                      ml_L1 :* (ml_LX1, J(`nobs', 1, 1), ml_L1:*ml_L2X1, ml_L1),     ///
+                      ml_L2 :* (ml_LX2, J(`nobs', 1, 1), ml_L2:*ml_L2X2, ml_L2), ml_L1:*ml_L2, ml_Xind)
     }
     else mata: ml_X = J(`nobs', 0, 0)
     
@@ -306,8 +323,8 @@ program define lslogit_Estimate, eclass
     // Joint wage estimation
     //
     mata: ml_heckm     = ("`joint'" != "" & "`heckman'" != "")                                                      // Run joint estimation?
-    mata: ml_HeckmVars = (ml_heckm == 1 ? (st_data(., tokens("`heckman'")), J(`nobs', 1, 1)) : J(`nobs', 0, 0))     // Wage variables
-    mata: ml_Days      = ("`days'" != "" ? st_data(., st_local("days")) : J(`nobs', 1, 365))                        // Days of taxyear
+    mata: ml_HeckmVars = (ml_heckm ==  1 ? (st_data(., tokens("`heckman'")), J(`nobs', 1, 1)) : J(`nobs', 0, 0))    // Wage variables
+    mata: ml_Days      = ("`days'" != "" ?  st_data(., st_local("days")) : J(`nobs', 1, 365))                       // Days of taxyear
     mata: ml_Hours     = `totaltime' :- (ml_L1, ml_L2)                                                              // Hypothetical hours
     
     //
@@ -347,7 +364,8 @@ program define lslogit_Estimate, eclass
     //
     mata: ml_draws = strtoreal(st_local("draws"))                                                                   // Number of draws
     mata: ml_burn  = strtoreal(st_local("burn"))                                                                    // Number of draws to burn
-    mata: ml_Rvars = ("`randvars'" != "" ? strtoreal(tokens(st_local("randvars")))' : J(0, 0, 0))                   // Random coefficients
+    mata: st_local("randvars", invtokens(strofreal(sort(strtoreal(tokens("`randvars'"))', 1))'))                    // Sort random coefficients
+    mata: ml_Rvars = ("`randvars'" != "" ? strtoreal(tokens("`randvars'"))' : J(0, 0, 0))                           // Random coefficients
     mata: ml_corr  = ("`corr'" != "")                                                                               // Random coefficients correlated?
     mata: ml_R     = (`rvars' > 0 ? invnormal(halton(ml_groups*ml_draws, `rvars', 1+ml_burn)) : J(`nobs', 0, 0))    // Halton sequences
     
@@ -361,31 +379,36 @@ program define lslogit_Estimate, eclass
     if ("`verbose'" != "") di as text "Run estimation..."
     
     // Set up equations
-    local eq_consum (C: `varlist' = `cx' `consumption')                 // Consumption
+    local eq_consum (C: `varlist' = `cx') (CC: `c2x')       // Consumption and consumption^2
     local eq_leisure
     foreach var of local leisure {
-        local i = 1 + (strpos("`leisure'", "`var'") > 1)                
-        local eq_leisure `eq_leisure' (L`i': `l`i'x' `var')             // Leisure
-        local eq_consum  `eq_consum' /CXL`i'                            // Consumption X leisure interaction
+        local i = 1 + (strpos("`leisure'", "`var'") > 1)
+        local eq_leisure `eq_leisure' (L`i': `lx`i'') (L`i'L`i': `l2x`i'')  // Leisure and leisure^2
+        local eq_consum  `eq_consum' /CXL`i'                                // Consumption X leisure interaction
     }
     if (`n_leisure' == 2) local eq_leisure  `eq_leisure' /L1XL2         // Leisure term interaction
-    if (`n_indeps'  > 0)  local eq_indeps (IND: `indeps', noconst)      // Independent variables / dummies
+    if (`n_indeps'  >  0) local eq_indeps   (IND: `indeps', noconst)    // Independent variables / dummies
     // Random coefficients
     if (`n_randvars' > 0) {
         local eq_rands
         if ("`corr'" == "") {
             forval i = 1/`n_randvars' {
-                local eq_rands `eq_rands' /SD`i'
+                local sd : word `i' of `randvars'
+                local eq_rands `eq_rands' /sd_`sd'
             }
-            if ("`initopt'" != "") mat `init_from' = (`init_from', J(1, `n_randvars', 0.0))
+            if ("`initopt'" != "") mat `init_from' = (`init_from', J(1, `n_randvars', 0.0001))
         }
         else {
             forval i = 1/`n_randvars' {
+                local a : word `i' of `randvars'
                 forval k = `i'/`n_randvars' {
-                    local eq_rands `eq_rands' /l`k'`i' // /S`i'`k'
+                    local b : word `k' of `randvars'
+                    if (`a' == `b') local lab sd_`a'
+                    else local lab s_`a'_`b'
+                    local eq_rands `eq_rands' /`lab'
                 }
             }
-            if ("`initopt'" != "") mat `init_from' = (`init_from', J(1, `n_randvars' * (`n_randvars' + 1) / 2, 0.0))
+            if ("`initopt'" != "") mat `init_from' = (`init_from', J(1, `n_randvars' * (`n_randvars' + 1) / 2, 0.0001))
         }
     }
     // Joint wage estimation
@@ -411,14 +434,17 @@ program define lslogit_Estimate, eclass
         ereturn scalar corr  = 1
         ereturn scalar k_aux = `n_randvars' * (`n_randvars' + 1) / 2
     }
-    else ereturn scalar corr = 0
+    else {
+        ereturn scalar corr = 0
+        ereturn scalar k_aux = `n_randvars'
+    }
     
-    foreach aux in alphaW1 sigmaW1 alphaW2 sigmaW2 dudes {
+    foreach aux in sigmaW1 sigmaW2 dudes {
         if (r(`aux') != .) ereturn scalar `aux' = r(`aux')
     }
     
     // Show results
-    lslogit_Replay, level(`level')
+    lslogit_Replay, level(`level') `quiet'
 end
 
 cap mata mata drop lslogit_d2()
@@ -464,10 +490,13 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     
     external ml_C
     external ml_CX
+    external ml_C2X
     external ml_L1
-    external ml_L1X
+    external ml_LX1
+    external ml_L2X1
     external ml_L2
-    external ml_L2X
+    external ml_LX2
+    external ml_L2X2
     external ml_Xind
     
     
@@ -477,11 +506,12 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     /* Setup */
     
     // Definitions
-    i     = 1                           // Indicates first observation of active group
-    nRV   = 1                           // Indicates next random variable to use (column of ml_R)
-    rvars = rows(ml_Rvars)              // Number of random variables
-    nobs  = rows(ml_Y)                  // Number of observations
-    nlei  = cols(ml_L1) + cols(ml_L2)   // Number of leisure terms
+    i     = 1                                       // Indicates first observation of active group
+    nRV   = 1                                       // Indicates next random variable to use (column of ml_R)
+    rvars = rows(ml_Rvars)                          // Number of random variables
+    nobs  = rows(ml_Y)                              // Number of observations
+    nlei  = cols(ml_L1) + cols(ml_L2)               // Number of leisure terms
+    ncons = cols(ml_CX) + cols(ml_C2X) + 2 + nlei   // Number of variables including consumption
     
     // Number of coefficients
     b     = cols(B)                                             // Total number
@@ -516,26 +546,22 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     // From now on: Beta[rows=ml_R,cols=Bfix] = Bfix :+ Brnd
     
     // Calculate dude share
-    if (brnd == 0 & ml_heckm == 0) {
-        dudes = 1 - colsum(cross((ml_CX, 2*ml_C, J(nobs, 1, 1), ml_L1, ml_L2)',
-                                 Bfix[|1,1\1,cols(ml_CX) + 2 + nlei|]') :> 0) / nobs
+    if (ml_heckm == 0) {
+        DUdC = cross((ml_CX, J(nobs, 1, 1), (ml_C2X, J(nobs, 1, 1)) :* 2 :* ml_C, ml_L1, ml_L2)', Bfix[|1,1\1,ncons|]')
+        if (brnd > 0 & ml_corr == 0) dudes = 1 - colsum(normal(DUdC :/ sqrt(colsum((ml_Rvars :<= ncons) :* diagonal(Sigm:^2)))) :/ nobs)
+        else dudes = colsum(DUdC :< 0) / nobs
         st_numscalar("r(dudes)", dudes)
     }
     
     // Predict wages
     if (ml_heckm == 1) {
-        Hwage = cross(ml_HeckmVars', Bheck')    // Log-wage prediction
-        Hwres = log(ml_Hwage) :- Hwage          // Residuals
-        lnCor = colsum(exp(Hwres)) / nobs                   // Intercept
+        Hwage = cross(ml_HeckmVars', Bheck')                // Log-wage prediction
+        Hwres = log(ml_Hwage) :- Hwage                      // Residuals
         Wsigm = sqrt(cross(Hwres, Hwres)/(nobs - bheck))    // RMSE
-        //printf("lnCor = " + strofreal(lnCor) + ", exp(Wsigm^2/2) = " + strofreal(exp(Wsigm^2/2)) + "\n");
-        Hwage = exp(Hwage :+ Wsigm^2/2) // * lnCor // or: * exp(Wsigm^2/2)  // Predict wages
-        for (c = 1; c <= cols(lnCor); c++) {                // Save intercept/rmse
-            //st_numscalar("r(alphaW" + strofreal(c) + ")", lnCor[1,c])
+        Hwage = exp(Hwage :+ Wsigm^2/2)                     // Predict wages
+        for (c = 1; c <= cols(Wsigm); c++) {                // Save RMSE
             st_numscalar("r(sigmaW" + strofreal(c) + ")", Wsigm[1,c])
         }
-        //if (sum(colmissing(Hwage)) > 0) lnf = .
-        //printf("lnCor = " + strofreal(lnCor) + ", meandiff = " + strofreal(mean(ml_Hwage - Hwage)) + "\n");
     } else {
         Hwage = ml_Hwage
         Wsigm = ml_Sigma
@@ -557,10 +583,13 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
         if (ml_wagep == 1 | ml_heckm == 1) {
             C    =  ml_C[|i,1\e,1|]   // Get consumption from data
             CX   = (cols(ml_CX)   > 0 ?   ml_CX[|i,1\e,.|] : J(c, 0, 0))
+            C2X  = (cols(ml_C2X)  > 0 ?  ml_C2X[|i,1\e,.|] : J(c, 0, 0))
             L1   = ml_L1[|i,1\e,1|]
-            L1X  = (cols(ml_L1X)  > 0 ?  ml_L1X[|i,1\e,.|] : J(c, 0, 0))
+            LX1  = (cols(ml_LX1)  > 0 ?  ml_LX1[|i,1\e,.|] : J(c, 0, 0))
+            L2X1 = (cols(ml_L2X1) > 0 ? ml_L2X1[|i,1\e,.|] : J(c, 0, 0))
             L2   = (cols(ml_L2)   > 0 ?   ml_L2[|i,1\e,1|] : J(c, 0, 0))
-            L2X  = (cols(ml_L2X)  > 0 ?  ml_L2X[|i,1\e,.|] : J(c, 0, 0))
+            LX2  = (cols(ml_LX2)  > 0 ?  ml_LX2[|i,1\e,.|] : J(c, 0, 0))
+            L2X2 = (cols(ml_L2X2) > 0 ? ml_L2X2[|i,1\e,.|] : J(c, 0, 0))
             Xind = (cols(ml_Xind) > 0 ? ml_Xind[|i,1\e,.|] : J(c, 0, 0))
             //Wn   = J(c, cols(Hwage), 1) :* cross(Yn, Hwage[|i,1\e,.|])
             Wn   = Hwage[|i,1\e,.|]
@@ -616,12 +645,12 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                 C = rowmax((cross(TaxregX', ml_TaxregB'), J(c, 1, 1)))
 
                 // Build matrix with independent variables
-                if      (ml_ufunc == "tran") Xnr = (log(C)  :* (CX,  log(C),  J(c, 1, 1),  log(L1), log(L2)),
-                                                    log(L1) :* (L1X, log(L1), J(c, 1, 1)),
-                                                    log(L2) :* (L2X, log(L2), J(c, 1, 1)), log(L1):*log(L2), Xind)
-                else if (ml_ufunc == "quad") Xnr = (C  :* (CX,  C,  J(c, 1, 1),  L1, L2),
-                                                    L1 :* (L1X, L1, J(c, 1, 1)),
-                                                    L2 :* (L2X, L2, J(c, 1, 1)), L1:*L2, Xind)
+                if      (ml_ufunc == "tran") Xnr = (log(C)  :* (CX,  J(c, 1, 1), log(C) :*C2X,  log(C),  log(L2)),
+                                                    log(L1) :* (LX1, J(c, 1, 1), log(L1):*L2X1, log(L1)),
+                                                    log(L2) :* (LX2, J(c, 1, 1), log(L2):*L2X2, log(L2)), log(L1):*log(L2), Xind)
+                else if (ml_ufunc == "quad") Xnr = (C  :* (CX,  J(c, 1, 1), C :*C2X,  C,   L1, L2),
+                                                    L1 :* (LX1, J(c, 1, 1), L1:*L2X1, L1),
+                                                    L2 :* (LX2, J(c, 1, 1), L2:*L2X2, L2), L1:*L2, Xind)
             }
 
 
@@ -665,10 +694,9 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                 
                 // Heckman?
                 if (ml_heckm == 1) {
-                    DUdC  = cross((CX, 2*C, J(c, 1, 1), L1, L2)', Beta[|1,1\1,cols(CX) + 3 + cols(L2)|]')
+                    DUdC  = cross((CX, J(c, 1, 1), (C2X, J(c, 1, 1)) :* 2 :* C, L1, L2)', Beta[|1,1\1,ncons|]')
                     DCdM  = cross((J(c, 1, 1), 2 :* Mwage, ml_TaxregIas1[|i,1\e,.|], 2 :* Mwage :* ml_TaxregIas1[|i,1\e,.|])', ml_TaxregB[|1,1\1,2 + 2 * cols(ml_TaxregIas1)|]')
                     DMdH  = (ml_Days[|i,1\e,1|] :/ 12 :/ 7) :* ml_Hours[|i,1\e,.|]
-                    //DHdB  = Wn :* (ml_HeckmVars[|i,1\e,.|] :- colsum(ml_HeckmVars :* exp(Hwres)) / (nobs * lnCor))
                     DHdB  = Wn :* (ml_HeckmVars[|i,1\e,.|] :- colsum(ml_HeckmVars :* Hwres) / (nobs - bheck))
                     DUdBw = DUdC :* DCdM :* DMdH :* DHdB
                     Gnr   = (Gnr, pni * colsum(YmPn :* DUdBw))
@@ -730,44 +758,18 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                     W2xy = J(0, bfix, 0)
                     W2xx = J(0, 0, 0)
                     if (ml_heckm == 1) {
-                        DXdH   = (CX, 2*C, J(c, 1, 1), L1, J(c, cols(Xnr) - (cols(CX) + 2 + nlei), 0)) :*
+                        DXdH   = (CX, J(c, 1, 1), (C2X, J(c, 1, 1)) :* 2 :* C, L1, J(c, cols(Xnr) - (cols(CX) + cols(C2X) + 2 + nlei), 0)) :*
                                  ((J(c, 1, 1), 2 :* Mwage, ml_TaxregIas1[|i,1\e,.|], 2 :* Mwage :* ml_TaxregIas1[|i,1\e,.|]) * ml_TaxregB[|1,1\1,2 + 2 * cols(ml_TaxregIas1)|]') :*
                                  (ml_Days[|i,1\e,1|] :/ 12 :/ 7) :* ml_Hours[|i,1\e,.|]
-                        D2UdC2 = 2 * Beta[1,cols(CX) + 1]
+                        D2UdC2 = 2 * Beta[|1,cols(CX) + 2\1,cols(CX) + cols(C2X) + 2|]
                         D2CdM2 = cross((J(c, 1, 2), 2 :* ml_TaxregIas1[|i,1\e,.|])', (ml_TaxregB[1,2], ml_TaxregB[|1,2 + cols(ml_TaxregIas1) + 1\1,2 + 2 * cols(ml_TaxregIas1)|])')
                         D2MdH2 = 0
-                        
-                        /*YmPnD2UdBw2 = cross(YmPn :* DHdB :* (DMdH:^2 :* (D2UdC2 :* DCdM:^2 :+ DUdC :* D2CdM2) + DUdC :* DCdM :* D2MdH2), DHdB) +
-                                      cross(YmPn :* DUdC :* DCdM :* DMdH :* DHdB, ml_HeckmVars[|i,1\e,.|])*/
-                        // DHdB  = Wn :* (ml_HeckmVars[|i,1\e,.|] :- colsum(ml_HeckmVars :* Hwres) / (nobs - bheck))
-                        /*
-                        D2UdBw2 = cross(DHdB :* (DMdH:^2 :* (D2UdC2 :* DCdM:^2 :+ DUdC :* D2CdM2) + DUdC :* DCdM :* D2MdH2), DHdB) +
-                                  cross(DUdC :* DCdM :* DMdH :* DHdB, ml_HeckmVars[|i,1\e,.|])
-                        */
                         
                         YmPnD2UdBw2 = cross(YmPn :* DHdB :* (DMdH:^2 :* (D2UdC2 :* DCdM:^2 :+ DUdC :* D2CdM2) + DUdC :* DCdM :* D2MdH2), DHdB)
                         for (hv = 1; hv <= bheck; hv++) {
                             YmPnD2UdBw2[hv,.] = YmPnD2UdBw2[hv,.] + cross(YmPn :* DUdC :* DCdM :* DMdH, DHdB :* (ml_HeckmVars[|i,hv\e,hv|] :- colsum(ml_HeckmVars[.,hv] :* Hwres) / (nobs - bheck)) :+
                                                                                                         cross(Wn', cross(ml_HeckmVars[.,hv], ml_HeckmVars) :/ (nobs - bheck)))
                         }
-                        /*
-                        DHdB
-                        ml_HeckmVars[|i,1\e,.|]
-                        colsum(ml_HeckmVars :* Hwres)
-                        Wn
-                        cross(ml_HeckmVars, ml_HeckmVars)
-                        
-                        D2HdB2 = YmPn :* DUdC :* DCdM :* DMdH :* DHdB :* (ml_HeckmVars[|i,1\e,.|] :- colsum(ml_HeckmVars :* Hwres) / (nobs - bheck)) :+
-                                 YmPn :* DUdC :* DCdM :* DMdH :*   Wn :* cross(ml_HeckmVars[|i,1\e,.|], ml_HeckmVars[|i,1\e,.|]) / (nobs - bheck)
-                        YmPn
-                        DUdC
-                        DCdM
-                        DMdH
-                        D2HdB2
-                        */
-                        
-                        //YmPnD2UdBw2 = cross(YmPn :* DHdB :* (DMdH:^2 :* (D2UdC2 :* DCdM:^2 :+ DUdC :* D2CdM2) + DUdC :* DCdM :* D2MdH2), DHdB)
-                        // YmPn :* DUdC :* DCdM :* DMdH :* D2HdB2
                         
                         W1   = - pni :* (cross(Yn, DUdBw) - cross(Pnr, DUdBw))
                         W2xy =   pni :* (cross(cross(Yn, DUdBw) - cross(Pnr, DUdBw), cross(YmPn, Xnr)) -
