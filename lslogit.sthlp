@@ -46,6 +46,7 @@
 {synopt:{opt boxcl(#)}}normalize leisure for Box-Cox transformation{p_end}
 {synopt:{opt dr:aws(#)}}number of Halton draws used to approximate{p_end}
 {synopt:{opt burn(#)}}number of initial Halton draws to burn{p_end}
+{synopt:{opt [no]round}}enable/disable rounding of hourly and monthly wages{p_end}
 
 {syntab:Right hand side}
 {p2coldent:* {opth c:onsumption(varname)}}consumption variable{p_end}
