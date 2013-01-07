@@ -164,18 +164,20 @@ program define lslogit_Estimate, eclass
         exit 498
     }
     // Check sample selection
-    if ("`heckman'" != "") {
-        qui count if log(`hwage') == .
-        if ("`select'" != "" & r(N) == 0) {
-            di in r "wage variable never censored because of selection"
-            exit 498
+    if ("`hwage'" != "") {
+        foreach hw of local hwage {
+            qui count if log(`hw') == . & `touse'
+            if ("`heckman'" != "") {
+                if ("`select'" != "" & r(N) == 0) {
+                    di in r "wage variable `hw' never censored because of selection"
+                    exit 498
+                }
+            }
+            if ("`heckman'" == "" & r(N) > 0) {
+                di in r "wage variable `hw' censored, use joint estimation"
+                exit 498
+            }
         }
-        /*
-        else if ("`select'" == "" & r(N) > 0) {
-            di in r "wage variable censored, use option select()"
-            exit 498
-        }
-        */
     }
     
     // Get variable count
@@ -591,6 +593,7 @@ program define lslogit_Estimate, eclass
     }
     if ("`taxreg'" != "") {         // Tax regression
         ereturn matrix taxreg_b = `taxreg_from', copy
+        if ("`taxreg_vars'" != "") ereturn local taxreg_vars `taxreg_vars'
         if ("`tria1'" != "") ereturn local taxreg_ia1 `tria1'
         if ("`tria2'" != "") ereturn local taxreg_ia2 `tria2'
     }
@@ -918,7 +921,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                                                                       lsl_TaxregIas2[|i,1\e,.|] :* Mwage[.,2]:^2)
                 else           TaxregX2 = J(c, 0, 0)
                 TaxregX = (TaxregX1, TaxregX2, lsl_TaxregVars[|i,1\e,.|], J(c, 1, 1))
-
+                
                 // Predict disposable income (can't be negative!)
                 C = rowmax((cross(TaxregX', lsl_TaxregB') :/ lsl_boxcc, J(c, 1, 1)))
                 
@@ -1101,12 +1104,6 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                 H1sum = H1sum :+ pni :* (cross(Yn, DUdx) :- cross(Pnr, DUdx))
                 H2sum = H2sum :+ pni :* (cross(cross(Yn, DUdx) :- cross(Pnr, DUdx), cross(YmPn, DUdx)) :-
                                          cross(Pnr :* DUdx, DUdx :- cross(Pnr, DUdx)) :+ YmPn_D2Udx2)
-
-                // Total
-                /*
-                H1sum = H1sum + (H1, S1, W1)
-                if (brnd == 0 & lsl_fml == 0) H2sum = H2sum + H2
-                */
             }
 
         }
@@ -1239,7 +1236,7 @@ void lslogit_p(string scalar newvar, string scalar touse, string scalar opt) {
         c  = lsl_J[i]
         e  = i + c - 1
         Xnr = lsl_X[|i,1\e,.|]
-                
+        
         // Fetch needed right hand side parts
         if (lsl_wagep == 1) {
             C    =  lsl_C[|i\e|]             // Get consumption from data
@@ -1252,8 +1249,8 @@ void lslogit_p(string scalar newvar, string scalar touse, string scalar opt) {
             LX2  = (cols(lsl_LX2)  > 0 ?  lsl_LX2[|i,1\e,.|] : J(c, 0, 0))
             L2X2 = (cols(lsl_L2X2) > 0 ? lsl_L2X2[|i,1\e,.|] : J(c, 0, 0))
             Xind = (cols(lsl_Xind) > 0 ? lsl_Xind[|i,1\e,.|] : J(c, 0, 0))
-            Wn   = Hwage[|i,1\e,.|]
-
+            Wn   = lsl_Hwage[|i,1\e,.|]
+            
             // Transform consumption and leisure
             if (lsl_ufunc == "boxcox") {
                 BcC  = lsl_boxcox(C, lC)
@@ -1396,8 +1393,8 @@ program define lslogit_p
     local n_wagep    : word count `e(wagepred)'
     local n_hecksig  : word count `e(hecksigma)'
     local n_hwage    : word count `e(hwage)'
-    local n_taxrias1 : word count `e(tria1)'
-    local n_taxrias2 : word count `e(tria2)'
+    local n_taxrias1 : word count `e(taxreg_ia1)'
+    local n_taxrias2 : word count `e(taxreg_ia2)'
     local n_heckvars : word count `e(heckman)'      // Not yet implemented
     local n_selvars  : word count `e(select)'       // Not yet implemented
     
@@ -1433,8 +1430,8 @@ program define lslogit_p
     //
     if ("`e(taxreg)'" == "1") {
         mata: lsl_TaxregB    = st_matrix("e(taxreg_b)")                                            // Tax regression estimates
-        mata: lsl_TaxregIas1 = ("`e(tria1)'" != "" ? st_data(., tokens("`e(tria1)'")) : J(`nobs', 0, 0))   // Interaction variables on Mwage1 and Mwage1^2
-        mata: lsl_TaxregIas2 = ("`e(tria2)'" != "" ? st_data(., tokens("`e(tria2)'")) : J(`nobs', 0, 0))   // Interaction variables on Mwage2 and Mwage2^2
+        mata: lsl_TaxregIas1 = ("`e(taxreg_ia1)'" != "" ? st_data(., tokens("`e(taxreg_ia1)'")) : J(`nobs', 0, 0))   // Interaction variables on Mwage1 and Mwage1^2
+        mata: lsl_TaxregIas2 = ("`e(taxreg_ia2)'" != "" ? st_data(., tokens("`e(taxreg_ia2)'")) : J(`nobs', 0, 0))   // Interaction variables on Mwage2 and Mwage2^2
         mata: lsl_TaxregVars = st_data(., tokens("`e(taxreg_vars)'"))                                   // Variables that are independent of m_wage
     }
     
@@ -1505,7 +1502,7 @@ program define lslogit_p
     }
     
     // Generate Halton sequences
-    mata: lsl_R = (`rvars' > 0 ? invnormal(halton(lsl_groups * lsl_draws, `rvars', 1 + lsl_burn)) : J(`nobs', 0, 0))
+    mata: lsl_R = (`rvars' + `n_wagep' > 0 ? invnormal(halton(lsl_groups * lsl_draws, `rvars' + `n_wagep', 1 + lsl_burn)) : J(`nobs', 0, 0))
     
     // Restore sample
     restore
