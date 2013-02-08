@@ -1,12 +1,13 @@
 {smcl}
 {* *! version 1.2.0  28dec2012}{...}
-{findalias asfradohelp}{...}
-{vieweralsosee "" "--"}{...}
-{vieweralsosee "[R] help" "help help"}{...}
+{vieweralsosee "[R] clogit" "help clogit"}{...}
+{vieweralsosee "[R] mixlogit" "help mixlogit"}{...}
+{vieweralsosee "lslogit on GitHub" "browse https://github.com/mloeffler/lslogit/"}{...}
 {viewerjumpto "Syntax" "lslogit##syntax"}{...}
 {viewerjumpto "Description" "lslogit##description"}{...}
 {viewerjumpto "Options" "lslogit##options"}{...}
-{viewerjumpto "Remarks" "lslogit##remarks"}{...}
+{viewerjumpto "References" "lslogit##references"}{...}
+{viewerjumpto "Author" "lslogit##author"}{...}
 {title:Title}
 
 {phang}
@@ -18,20 +19,20 @@
 
 {p 8 17 2}
 {cmdab:lslogit}
-{depvar}
-{ifin}
-{weight}
-{cmd:,}
-{cmdab:gr:oup:(}{varname}{cmd:)}
-{cmdab:c:onsumption:(}{varname}{cmd:)}
-{cmdab:l:eisure:(}{varlist}{cmd:)}
-[{it:options}]
+    {depvar}
+    {ifin}
+    {weight}
+    {cmd:,}
+    {cmdab:gr:oup:(}{varname}{cmd:)}
+    {cmdab:c:onsumption:(}{varname}{cmd:)}
+    {cmdab:l:eisure:(}{varlist}{cmd:)}
+    [{it:options}]
 
 {p 8 17 2}
 {cmdab:lslpred}
-{newvar}
-{ifin}
-[{cmd:,} {cmd:xb} {cmd:pc1}]
+    {it:newvarlist}
+    {ifin}
+    [{cmd:,} {cmd:xb} {cmd:pc1}]
 
 
 {synoptset 21 tabbed}{...}
@@ -101,57 +102,96 @@ but they are interpreted to apply to the group, not to individual observations. 
 
 {pstd}
 {cmd:lslogit} fits mixed logit models with particular focus on the estimation
-of structural labor supply models. It allows for several different utility
-specifications as well as observed and unobserved heterogeneity in
-preferences. Maximum simulated likelihood methods are used to incorporate
-normally distributed random coefficients (Train, 2009).
+of structural labor supply models in the discrete choice context. It allows for
+several different functional forms, very flexible utility specifications,
+both observed and unobserved heterogeneity in preferences and can be easily
+augmented with flexible dummy refinement. Moreover, it allows to integrate out
+the wage prediction error during the estimation.
 
 {pstd}
-{cmd:lslpred} calculates the whatever statistic for the variables in
-{varlist} when the data are not stratified.
+Technically, it is an extension to the Stata command {help clogit} and the
+user-written routine {help mixlogit} ({help lslogit##hole_2007:Hole, 2007}). {cmd:lslogit}
+makes use of maximum simulated likelihood methods
+({help lslogit##train_2009:Train, 2009}).
+
+{pstd}
+{cmd:lslpred} predicts the systematic utility and/or the choice probabilities
+according to the estimated coefficients.
 
 
 {marker options}{...}
 {title:Options}
 
-{dlgtab:Blab}
+{dlgtab:Model}
 
 {phang}
-{opt detail} displays detailed output of the calculation.
+{opth group(varname)} specifies an identifier variable for the matched groups.
 
 {phang}
-{opt meanonly} restricts the calculation to be based on only the means.  The
-default is to use a trimmed mean.
+{opt quadratic} specifies the functional form of the systematic utility to be
+quadratic ({help lslogit##keane_moffitt_1998:Keane and Moffitt, 1998}). If no
+functional form is specified, {cmd:lslogit} will assume a quadratic utility
+function.
 
 {phang}
-{opt format} requests that the summary statistics be displayed using
-the display formats associated with the variables, rather than the default
-{cmd:g} display format; see
-{findalias frformats}.
+{opt translog} specifies a translog utility function ({help lslogit##vansoest_1995:van Soest, 1995}).
 
 {phang}
-{opt separator(#)} specifies how often to insert separation lines
-into the output.  The default is {cmd:separator(5)}, meaning that a
-line is drawn after every 5 variables.  {cmd:separator(10)} would draw a line
-after every 10 variables.  {cmd:separator(0)} suppresses the separation line.
+{opt boxcox} specifies a Box-Cox transformed utility function
+({help lslogit##aaberge_etal_1995:Aaberge et al., 1995}). The likelihood
+function converges more easily when consumption and leisure variables
+have a small range. Therefore, consumption is divided by {opt boxcc(#)} and
+leisure is divided by {opt boxcl(#)} (default is {bf:boxcl(1000)} and
+{bf:boxcl(80)}).
 
 {phang}
-{opth generate(newvar)} creates {it:newvar} containing the whatever
-values.
+{opt draws(#)} is the number of Halton draws that are used to approximate
+the likelihood contribution of each group (default is {bf:draws(50)}).
+
+{phang}
+{opt burn(#)} denotes the number of highly correlated initial Halton draws
+to be burned (default is {bf:burn(15)}).
+
+{phang}
+{opt [no]round} enables/disables rounding of hourly and monthly wages. Rounding
+may cause problems when estimating wages and working hours jointly because of 
+non-concave parts in the likelihood function.
 
 
-{marker remarks}{...}
-{title:Remarks}
+{marker references}{...}
+{title:References}
 
-{pstd}
-For detailed information on the whatever statistic, see {bf:[R] intro}.
+{marker aaberge_etal_1995}{...}
+{phang}
+Aaberge, R., Dagsvik, J. K. and Strøm, S. (1995). Labor supply responses and welfare effects of tax reforms,
+{it:The Scandinavian Journal of Economics} 97(4): 635-659.
+
+{marker hole_2007}{...}
+{phang}
+Hole, A. R. (2007). Fitting mixed logit models by using maximum simulated likelihood,
+{it:Stata Journal} 7(3), 388-401.
+
+{marker keane_moffitt_1998}{...}
+{phang}
+Keane, M. P. and Moffitt, R. (1998). A structural model of multiple welfare program participation and labor supply,
+{it:International Economic Review} 39(3): 553-589.
+
+{marker train_2009}{...}
+{phang}
+Train, K. E. (2009). {it:Discrete Choice Methods with Simulation}. 2nd ed. Cambridge University Press.
+
+{marker vansoest_1995}{...}
+{phang}
+van Soest, A. (1995). Structural models of family labor supply -- a discrete choice approach,
+{it:The Journal of Human Resources} 30(1): 63-88.
+{p_end}
 
 
 {marker author}{...}
 {title:Author}
 
 {phang}
-{cmd:lslogit} was written by Max Löffler (loeffler@iza.org), Institute for the
+{cmd:lslogit} was written by Max Löffler ({browse "mailto:loeffler@iza.org":loeffler@iza.org}), Institute for the
 Study of Labor (IZA), Bonn, Germany.
     
 
