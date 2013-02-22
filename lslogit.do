@@ -225,10 +225,10 @@ program define lslogit_Estimate, eclass
             // Load tax regression estimates
             qui est restore `taxreg'
             mat `taxreg_from' = e(b)
-            local taxreg_betas : colnames `taxreg_from'
+            local taxreg_betas   : colnames `taxreg_from'
             local n_taxreg_betas : word count `taxreg_betas'
             local taxreg_vars
-            local start = 1 + 2 * (`n_leisure' + `n_taxrias1' + `n_taxrias2')         // + `n_leisure' * 5
+            local start = 1 + 2 * (`n_leisure' + `n_taxrias1' + `n_taxrias2')
             forval x = `start'/`n_taxreg_betas' {
                 local var : word `x' of `taxreg_betas'
                 if ("`var'" != "_cons") local taxreg_vars `taxreg_vars' `var'
@@ -462,19 +462,19 @@ program define lslogit_Estimate, eclass
         mata: lsl_TaxregVars = st_data(., tokens("`taxreg_vars'"))                                   // Variables that are independent of m_wage
     }
     
+    
     //
     // Group level stuff
     //
-    qui duplicates report `group'
-    local n_groups = r(unique_value)
-    mata: lsl_groups = `n_groups'   // Number of groups
-    tempvar choices
-    by `group': gen `choices' = _N
-    mata: lsl_J = st_data(., st_local("choices"))        // Choices per group
+    
+    mata: lsl_J = panelsetup(st_data(., "`group'"), 1)
+    mata: lsl_groups = rows(lsl_J)
+    
     
     //
     // Random draws
     //
+    
     mata: lsl_draws = strtoreal(st_local("draws"))                                                                   // Number of draws
     mata: lsl_burn  = strtoreal(st_local("burn"))                                                                    // Number of draws to burn
     mata: st_local("randvars", invtokens(strofreal(sort(strtoreal(tokens("`randvars'"))', 1))'))                    // Sort random coefficients
@@ -648,7 +648,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     external string scalar  lsl_ufunc           // Functional form
     external real scalar    lsl_groups          // Number of groups
     external real colvector lsl_Y               // Left hand side variable
-    external real colvector lsl_J               // Number of choices per group
+    external real matrix    lsl_J               // Panel setup data
     external real matrix    lsl_X               // Right hand side variables
     external real colvector lsl_Weight          // Group weights
     
@@ -851,8 +851,9 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     
     for (n = 1; n <= lsl_groups; n++) {
         // Last observation of group n
-        c   = lsl_J[i]
-        e   = i + c - 1
+        i = lsl_J[n,1]
+        e = lsl_J[n,2]
+        c = e - i + 1
         
         // Fetch relevant variables
         Yn   = lsl_Y[|i\e|]
@@ -1129,9 +1130,6 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
         lnf = lnf + lsl_Weight[i] * log(lsum / lsl_draws)
         if (todo >= 1) G = G + lsl_Weight[i] * (lsum > 1e-25 ? Gsum / lsum : J(1, b, 0))
         if (todo == 2) H = H + lsl_Weight[i] * (lsum > 1e-25 ? H2sum / lsum - cross(Gsum, H1sum) / lsum^2: J(b, b, 0))
-
-        // Next household
-        i = i + c
     }
     
     // Add likelihood of wage equation?
@@ -1197,7 +1195,7 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
     external real scalar    lsl_groups          // Number of groups
     external real scalar    lsl_draws           // Number of random draws
     external real colvector lsl_Y               // Left hand side variable
-    external real colvector lsl_J               // Number of choices per group
+    external real matrix    lsl_J               // Panel setup information
     external real matrix    lsl_R               //   Halton sequences    
     external real colvector lsl_Rvars           // Random coefficients
     external real scalar    lsl_rvars           // Number of random coefficients
@@ -1248,8 +1246,9 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
     }
     
     for (n = 1; n <= lsl_groups; n++) {
-        c  = lsl_J[i]
-        e  = i + c - 1
+        i   = lsl_J[n,1]
+        e   = lsl_J[n,2]
+        c   = e - i + 1
         Xnr = lsl_X[|i,1\e,.|]
         
         // Fetch needed right hand side parts
@@ -1341,7 +1340,6 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
         // Next household
         U[|i\e|] = Un :/ nrep
         P[|i\e|] = Pn :/ nrep
-        i = i + c
     }
     
     // Store prediction
@@ -1366,6 +1364,7 @@ cap program drop lslogit_p
 program define lslogit_p
     syntax newvarlist(min=1 max=2) [if] [in] [, xb pc1]
     
+    
     //
     // Initialize
     //
@@ -1383,8 +1382,11 @@ program define lslogit_p
         else local opt pc1 xb
     }
     else if ("`xb'" == "" & "`pc1'" == "") {
-        di as text "(option pc1 assumed; probability of success given one success within group)"
-        local opt pc1    // Default: pc1
+        if (`n_varlist' == 2) local opt pc1 xb
+        else {
+            di as text "(option pc1 assumed; probability of success given one success within group)"
+            local opt pc1    // Default: pc1
+        }
     }
     else local opt `xb'`pc1'
     
@@ -1394,11 +1396,12 @@ program define lslogit_p
                     `e(l2x1)' `e(l2x2)' `e(indeps)' `e(wagepred)' `e(days)' `e(tria1)' `e(tria2)'
     
     // Restrict sample to those of interest
+    qui sort `e(group)' // BUGGY
     preserve
     qui keep if `touse'
-    qui sort `e(group)'
     qui count
     local nobs = r(N)
+    
     
     //
     // Prepare data
@@ -1423,16 +1426,13 @@ program define lslogit_p
     
     local rvars      : word count `e(randvars)'
     
+    
     //
     // Move data to Mata
     //
     
-    qui duplicates report `e(group)'
-    local n_groups = r(unique_value)
-    mata: lsl_groups = `n_groups'           // Number of groups
-    tempvar choices
-    by `e(group)': gen `choices' = _N
-    mata: lsl_J = st_data(., "`choices'")     // Choices per group
+    mata: lsl_J = panelsetup(st_data(., "`e(group)'"), 1)   // Choices per group
+    mata: lsl_groups = rows(lsl_J)                          // Number of groups
     
     mata: lsl_ufunc = "`e(ufunc)'"              // Utility function
     mata: lsl_nlei  = `n_leisure'               // Utility function
@@ -1448,9 +1448,11 @@ program define lslogit_p
     mata: lsl_Hwage = ("`e(hwage)'" != "" ? st_data(., tokens("`e(hwage)'")) : J(`nobs', lsl_nlei, 0))  // Hourly wage rates
     mata: lsl_Days  = ("`e(days)'" != "" ? st_data(., "`e(days)'") : J(`nobs', 1, 365))                 // Days of taxyear
     
+    
     //
     // Tax regression
     //
+    
     if ("`e(taxreg)'" == "1") {
         mata: lsl_TaxregB    = st_matrix("e(taxreg_b)")                                            // Tax regression estimates
         mata: lsl_TaxregIas1 = ("`e(taxreg_ia1)'" != "" ? st_data(., tokens("`e(taxreg_ia1)'")) : J(`nobs', 0, 0))   // Interaction variables on Mwage1 and Mwage1^2
@@ -1530,6 +1532,7 @@ program define lslogit_p
     // Restore sample
     restore
     
+    
     //
     // Predict
     //
@@ -1538,6 +1541,7 @@ program define lslogit_p
         qui gen double `v' = .
     }
     mata: lslogit_p(tokens("`varlist'"), "`touse'", tokens("`opt'"))
+    
     
     //
     // Clean up
