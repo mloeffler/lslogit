@@ -15,4 +15,4 @@ lslogit
 - [Arne Risa Hole](http://www.shef.ac.uk/economics/people/hole) for his excellent Stata command [mixlogit](http://www.shef.ac.uk/economics/people/hole/stata).
 
 ## Reference
-- <a id="train_2009">Train, K. E. (2009)</a>. *Discrete Choice Methods with Simulation*, second edn, Cambridge University Press.
+- <a name="train_2009"></a>Train, K. E. (2009). [Discrete Choice Methods with Simulation](http://elsa.berkeley.edu/books/choice2.html), second edn, Cambridge University Press.
