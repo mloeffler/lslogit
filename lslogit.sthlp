@@ -40,7 +40,7 @@
 {synoptline}
 {syntab:Model}
 {p2coldent:* {opth gr:oup(varname)}}matched group variable{p_end}
-{synopt:{opt quad:ratic}}quadratic utility function{p_end}
+{synopt:{opt quad:ratic}}quadratic utility function (default){p_end}
 {synopt:{opt tran:slog}}translog utility function{p_end}
 {synopt:{opt boxc:ox}}Box-Cox utility function{p_end}
 {synopt:{opt boxcc(#)}}normalize consumption for Box-Cox transformation{p_end}
@@ -91,14 +91,13 @@ but they are interpreted to apply to the group, not to individual observations. 
 {synoptset 21 tabbed}{...}
 {synopthdr:lslpred options}
 {synoptline}
-{synopt:{opt pc1}}predict choice probabilities{p_end}
+{synopt:{opt pc1}}predict choice probabilities (default){p_end}
 {synopt:{opt xb}}predict systematic utility{p_end}
 {synoptline}
 {p2colreset}{...}
 {p 4 6 2}
 If two variables are specified in {it:{help newvarlist}}, the first will contain
-the choice probabilities, the latter will contain the systematic utilities. If neiter
-{opt pc1} nor {opt xb} is specified, {opt pc1} is assumed.
+the choice probabilities, the latter will contain the systematic utilities.
 
 
 {marker description}{...}
