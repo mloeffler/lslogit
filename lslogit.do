@@ -903,7 +903,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                 //
 
                 // Adjust wages with random draws if prediction enabled
-                if (lsl_wagep == 1) Wn = Wn :* exp(cross(Bsig' :* lsl_R[|iRV,nRV\iRV,.|]', lsl_Wpred[|i,1\e,.|]'))'
+                if (lsl_wagep == 1) Wn = Wn :* exp(Bsig :* lsl_R[|iRV,nRV\iRV,.|] :* lsl_Wpred[|i,1\e,.|])
                 
                 // Calculate monthly earnings
                 Mwage = (lsl_Days[|i\e|] :/ 12 :/ 7) :* lsl_Hours[|i,1\e,.|] :* Wn
