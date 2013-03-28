@@ -868,6 +868,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
         LX2  = (cols(lsl_LX2)  > 0 ?  lsl_LX2[|i,1\e,.|] : J(c, 0, 0))
         L2X2 = (cols(lsl_L2X2) > 0 ? lsl_L2X2[|i,1\e,.|] : J(c, 0, 0))
         Xind = (cols(lsl_Xind) > 0 ? lsl_Xind[|i,1\e,.|] : J(c, 0, 0))
+        Wn   = Hwage[|i,1\e,.|]
         
         // Transform consumption and leisure
         if (lsl_ufunc == "boxcox") {
