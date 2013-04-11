@@ -475,6 +475,7 @@ program define lslogit_Estimate, eclass
     //
     
     mata: lsl_joint      = ("`joint'" != "")                                                // ML joint estimation?
+    mata: lsl_Wobs       = (lsl_Y :* (log(lsl_Hwage) :< .))                                 // Wage observed?
     mata: lsl_HeckmVars  = (lsl_joint == 1 ? (st_data(., tokens("`heckman'")), J(`nobs', 1, 1))    ///
                                                         : J(`nobs', 0, 0))                  // Wage variables
     mata: lsl_SelectVars = (lsl_joint == 1 & "`select'" != "" ? (st_data(., tokens("`select'")), J(`nobs', 1, 1))    ///
@@ -738,6 +739,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     external real scalar    lsl_corr            //   Enable correlation?
     
     external real scalar    lsl_joint           // Joint ML estimation?
+    external real matrix    lsl_Wobs            //   Wage rate observed?
     external real matrix    lsl_HeckmVars       //   Right hand side variables
     external real matrix    lsl_SelectVars      //   Selection variables
     external real scalar    lsl_wagecorr        //   Number of covariances between wages and leisure preferences?
@@ -785,7 +787,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                    iwage, isel, iheck, ilam, irnd, ilC, ilL1, ilL2
     real matrix    CholB, CholBW, CholW
     
-    real matrix    Hwage, Wobs, LnWres, LnWresPur, Select, Lambda, Wn
+    real matrix    Hwage, LnWres, LnWresPur, Select, Lambda, Wn
     real matrix    Mwage, TaxregX1, TaxregX2, TaxregX, DCdM, D2CdM2
     
     real matrix    DUdx, DUdB, DUdlam, DUdBr, DWdBw, DWdBs, DWdBrho, Dude,
@@ -942,15 +944,15 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
         else Hwage = cross(lsl_HeckmVars', Bwage')
         
         // Wage observed?
-        Wobs = lsl_Y :* (log(lsl_Hwage) :< .)
+        //Wobs = lsl_Y :* (log(lsl_Hwage) :< .)
         
         // Redisuals
-        LnWres    = Wobs :* (log(lsl_Hwage) :- Hwage)                           // Including Heckman correction
-        LnWresPur = Wobs :* (log(lsl_Hwage) :- cross(lsl_HeckmVars', Bwage'))   // Just wage equation residuals
+        LnWres    = lsl_Wobs :* (log(lsl_Hwage) :- Hwage)                           // Including Heckman correction
+        LnWresPur = lsl_Wobs :* (log(lsl_Hwage) :- cross(lsl_HeckmVars', Bwage'))   // Just wage equation residuals
         
         // Neither Heckman nor correlation, calculate wage variance
         if (!bsel & !lsl_wagecorr) {
-            Bsig   = sqrt(cross(LnWresPur, LnWresPur) / (colsum(Wobs) - bwage))     // Root MSE
+            Bsig   = sqrt(cross(LnWresPur, LnWresPur) / (colsum(lsl_Wobs) - bwage))     // Root MSE
             SigmaW = Bsig                                                           // Overwrite wage variance
             CholW  = diag(Bsig)                                                     // Overwrite Cholesky factors
             for (c = 1; c <= cols(Bsig); c++) {
@@ -1139,7 +1141,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                                                                                 (rowsum(lsl_R[|iRV,1\iRV,rvars|] :* (lsl_Rvars :== iL1)') :+ B[iheck + (bsel > 0) + 2])))
                             DWdBs     = DWdBrho = J(c, 0, 0)
                         } else {
-                            DWdBw =   Wn :* (lsl_HeckmVars[|i,1\e,.|] :- (Bsig + lsl_R[iRV,nRV]) :* colsum(lsl_HeckmVars :* LnWresPur) / (colsum(Wobs) - bwage))
+                            DWdBw =   Wn :* (lsl_HeckmVars[|i,1\e,.|] :- (Bsig + lsl_R[iRV,nRV]) :* colsum(lsl_HeckmVars :* LnWresPur) / (colsum(lsl_Wobs) - bwage))
                             DWdBs = DWdBrho = DWdBsig = DWdBwcorr = J(c, 0, 0)
                         }
                     }
@@ -1284,18 +1286,18 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     
     // Add likelihood of wage equation?
     if (lsl_joint) {
-        lnf = lnf + cross(Wobs, log(normalden(LnWresPur :/ SigmaW)) :- log(SigmaW))
+        lnf = lnf + cross(lsl_Wobs, log(normalden(LnWresPur :/ SigmaW)) :- log(SigmaW))
         /*if (bsel > 0) {
-            lnf = lnf + cross(Wobs, log(normal((Select :+ LnWresPur :* Brho :/ SigmaW) :/ sqrt(1 - Brho^2)))) +
-                        cross((Wobs :== 0) :* lsl_Y, log(normal(-Select)))
+            lnf = lnf + cross(lsl_Wobs, log(normal((Select :+ LnWresPur :* Brho :/ SigmaW) :/ sqrt(1 - Brho^2)))) +
+                        cross((lsl_Wobs :== 0) :* lsl_Y, log(normal(-Select)))
             if (todo >= 1) {
-                G[|iwage\iwage + bwage + bsel - 1|] = G[|iwage\iwage + bwage + bsel - 1|] :+ (cross(Wobs :* lsl_HeckmVars, LnWresPur :/ SigmaW^2 :- (normalden((Select :+ LnWresPur :* Brho :/ SigmaW) :/ sqrt(1 - Brho^2)) :/ normal((Select :+ LnWresPur :* Brho :/ SigmaW) :/ sqrt(1 - Brho^2))) :* (Brho / SigmaW) :/ sqrt(1 - Brho^2))',
-                                                                                              cross(lsl_SelectVars, Wobs :* (normalden((Select :+ LnWresPur :* Brho :/ SigmaW) :/ sqrt(1 - Brho^2)) :/ normal((Select :+ LnWresPur :* Brho :/ SigmaW) :/ sqrt(1 - Brho^2))) :/ sqrt(1 - Brho^2) :- (Wobs :== 0) :* lsl_Y :* normalden(-Select) :/ normal(-Select))')
+                G[|iwage\iwage + bwage + bsel - 1|] = G[|iwage\iwage + bwage + bsel - 1|] :+ (cross(lsl_Wobs :* lsl_HeckmVars, LnWresPur :/ SigmaW^2 :- (normalden((Select :+ LnWresPur :* Brho :/ SigmaW) :/ sqrt(1 - Brho^2)) :/ normal((Select :+ LnWresPur :* Brho :/ SigmaW) :/ sqrt(1 - Brho^2))) :* (Brho / SigmaW) :/ sqrt(1 - Brho^2))',
+                                                                                              cross(lsl_SelectVars, lsl_Wobs :* (normalden((Select :+ LnWresPur :* Brho :/ SigmaW) :/ sqrt(1 - Brho^2)) :/ normal((Select :+ LnWresPur :* Brho :/ SigmaW) :/ sqrt(1 - Brho^2))) :/ sqrt(1 - Brho^2) :- (lsl_Wobs :== 0) :* lsl_Y :* normalden(-Select) :/ normal(-Select))')
             }
         } else {*/
             if (todo >= 1) {
-                G[|iwage\iwage + bwage - 1|] = G[|iwage\iwage + bwage - 1|] :+ cross(Wobs, lsl_HeckmVars :* LnWresPur :/ SigmaW:^2)
-                if (lsl_wagecorr) G[|iheck\iheck + lsl_wagecorr|] = G[|iheck\iheck + lsl_wagecorr|] :+ cross(Wobs, LnWresPur:^2 :/ SigmaW:^4 :- 1 :/ SigmaW:^2) :* B[|iheck\iheck + lsl_wagecorr|]
+                G[|iwage\iwage + bwage - 1|] = G[|iwage\iwage + bwage - 1|] :+ cross(lsl_Wobs, lsl_HeckmVars :* LnWresPur :/ SigmaW:^2)
+                if (lsl_wagecorr) G[|iheck\iheck + lsl_wagecorr|] = G[|iheck\iheck + lsl_wagecorr|] :+ cross(lsl_Wobs, LnWresPur:^2 :/ SigmaW:^4 :- 1 :/ SigmaW:^2) :* B[|iheck\iheck + lsl_wagecorr|]
             }
         //}
     }
