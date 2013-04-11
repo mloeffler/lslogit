@@ -515,9 +515,6 @@ program define lslogit_Estimate, eclass
     mata: lsl_J = panelsetup(st_data(., "`group'"), 1)
     mata: lsl_J = (lsl_J, 1 :+ lsl_J[.,2] :- lsl_J[.,1])
     mata: lsl_groups = rows(lsl_J)
-
-    // Calculate log-likelihood of null model
-    mata: st_local("ll_0", strofreal(-colsum(log(lsl_J[.,3]))))
     
     
     //
@@ -538,6 +535,15 @@ program define lslogit_Estimate, eclass
     mata: lsl_Rvars = ("`randvars'" != "" ? strtoreal(tokens("`randvars'"))' : J(0, 1, 0))                              // Random coefficients
     mata: lsl_corr  = ("`corr'" != "")                                                                                  // Random coefficients correlated?
     mata: lsl_R     = (`rvars' > 0 ? invnormal(halton(lsl_groups*lsl_draws, `rvars', 1+lsl_burn)) : J(`nobs', 0, 0))    // Halton sequences
+    
+    
+    //
+    // Calculate log-likelihood of null model
+    //
+    
+    mata: st_local("SigmaW", strofreal(sqrt(cross(log(lsl_Hwage), log(lsl_Hwage)) / (colsum(lsl_Wobs) - `n_heckvars' - 1))))
+    mata: st_local("ll_0", strofreal(- colsum(log(lsl_J[.,3]))          ///
+                                     - lsl_joint * cross(lsl_Wobs, log(normalden(log(lsl_Hwage) :/ `SigmaW')) :- log(`SigmaW'))))
     
     // Restore data
     restore
