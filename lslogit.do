@@ -543,7 +543,8 @@ program define lslogit_Estimate, eclass
     
     mata: st_local("SigmaW", strofreal(sqrt(cross(log(lsl_Hwage), log(lsl_Hwage)) / (colsum(lsl_Wobs) - `n_heckvars' - 1))))
     mata: st_local("ll_0", strofreal(- colsum(log(lsl_J[.,3]))          ///
-                                     - lsl_joint * cross(lsl_Wobs, log(normalden(log(lsl_Hwage) :/ `SigmaW')) :- log(`SigmaW'))))
+                                     + lsl_joint * cross(lsl_Wobs, log(normalden(log(lsl_Hwage) :/ `SigmaW')) :- log(`SigmaW'))))
+    if ("`debug'" != "") di "ll_0 = `ll_0'"
     
     // Restore data
     restore
@@ -967,7 +968,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
         }
         
         // Predict wages
-        Hwage = exp(Hwage :+ SigmaW^2/2)
+        Hwage = exp(Hwage :+ SigmaW^2/2) :* (lsl_Hours[|1,1\.,1|] :!= 0)
     }
     // No joint estimation, get initial data
     else {
@@ -1038,6 +1039,11 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
 
                 // Adjust wages with random draws if prediction enabled
                 if (lsl_wagep) Wn = Hwage[|i,1\e,.|] :* exp(cross((CholBW, CholW)', lsl_R[|iRV,1\iRV,cols(lsl_R) - 1|]')' :* lsl_Wpred[|i,1\e,.|])
+                
+                /*
+                ("Wobs", "lsl_Hwage", "Hwage", "lsl_Wpred", "exp(...)", "lsl_Hours", "Wn")
+                lsl_Wobs[|i,1\e,.|], lsl_Hwage[|i,1\e,.|], Hwage[|i,1\e,.|], lsl_Wpred[|i,1\e,.|], exp(cross((CholBW, CholW)', lsl_R[|iRV,1\iRV,cols(lsl_R) - 1|]')' :* lsl_Wpred[|i,1\e,.|]), lsl_Hours[|i,1\e,.|], Wn
+                */
                 
                 // Calculate monthly earnings
                 Mwage = (lsl_Days[|i\e|] :/ 12 :/ 7) :* lsl_Hours[|i,1\e,.|] :* Wn
