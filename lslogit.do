@@ -541,10 +541,9 @@ program define lslogit_Estimate, eclass
     // Calculate log-likelihood of null model
     //
     
-    mata: st_local("SigmaW", strofreal(sqrt(cross(log(lsl_Hwage), log(lsl_Hwage)) / (colsum(lsl_Wobs) - `n_heckvars' - 1))))
+    mata: st_local("SigmaW", strofreal(sqrt(cross(lsl_Wobs :* log(lsl_Hwage), log(lsl_Hwage)) / (colsum(lsl_Wobs) - `n_heckvars' - 1))))
     mata: st_local("ll_0", strofreal(- colsum(log(lsl_J[.,3]))          ///
                                      + lsl_joint * cross(lsl_Wobs, log(normalden(log(lsl_Hwage) :/ `SigmaW')) :- log(`SigmaW'))))
-    if ("`debug'" != "") di "ll_0 = `ll_0'"
     
     // Restore data
     restore
@@ -705,11 +704,13 @@ program define lslogit_Estimate, eclass
     // Clean up
     //
     
+    /*
     foreach m in round ufunc Weight Y Hwage boxcc boxcl C CX C2X L1 LX1 L2X1 L2 LX2 L2X2 Xind X joint ///
                  HeckmVars SelectVars Days Hours wagep Wpred Sigma TaxregB TaxregIas1 TaxregIas2 TaxregVars ///
                  groups J draws burn Rvars corr R {
         cap mata mata drop lsl_`m'
     }
+    */
     
     //
     // Show results
