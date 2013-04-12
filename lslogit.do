@@ -1278,12 +1278,12 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
             if (lsl_lambda > 0 & lsl_joint == 0) {
                 lnf = lnf + lsl_lambda :* lsl_Weight[i] :* cross(lsl_force[|i\e|], Dude[|i,r\e,r|])
                 if (todo >= 1) {
-                    if    (lsl_ufunc == "boxcox") G[|1\ncons|] = G[|1\ncons|]
+                    if    (lsl_ufunc == "boxcox") G[|1\ncons|] = G[|1\ncons|]   // BUGGY!!!
                     else if (lsl_ufunc == "quad") G[|1\ncons|] = G[|1\ncons|] :+ lsl_lambda :* colsum(lsl_Weight[i] :* lsl_force[|i\e|] :* (CX, 2 :* C2X :* C, L1, L2))
                     else if (lsl_ufunc == "tran") G[|1\ncons|] = G[|1\ncons|] :+ lsl_lambda :* colsum(lsl_Weight[i] :* lsl_force[|i\e|] :* (CX, 2 :* C2X :* log(C), log(L1), log(L2)) :/ C)
                 }
                 if (todo == 2 & lsl_ufunc == "boxcox") {
-
+                    // BUGGY!!!
                 }
             }
         }
