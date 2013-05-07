@@ -225,6 +225,15 @@ program define lslogit_Estimate, eclass
     // Validate Wage Prediction Options
     if (`n_wagep' == 0) local wagep = 0     // No wage prediction
     else {
+        // Check wage prediction settings
+        foreach wagep of local wagepred {
+            cap bys `group': assert `wagep' == `wagep'[_N] if `touse'
+            if (_rc != 0) {
+                di in r "wage prediction error settings ('`wagep'') need to be constant within households"
+                exit 498
+            }
+        }
+        
         // Wage prediction enabled
         if (`n_wagep' == `n_leisure' & `n_wagep' == `n_hwage' & (`n_wagep' == `n_hecksig' | "`heckman'" != "")) {
             tempvar preds
@@ -474,16 +483,16 @@ program define lslogit_Estimate, eclass
     // Joint wage estimation
     //
     
-    mata: lsl_joint      = ("`joint'" != "")                                                // ML joint estimation?
-    mata: lsl_Wobs       = (lsl_Y :* (log(lsl_Hwage) :< .))                                 // Wage observed?
-    mata: lsl_HeckmVars  = (lsl_joint == 1 ? (st_data(., tokens("`heckman'")), J(`nobs', 1, 1))    ///
+    mata: lsl_joint       = ("`joint'" != "")                                                // ML joint estimation?
+    mata: lsl_Wobs        = (lsl_Y :* (log(lsl_Hwage) :< .))                                 // Wage observed?
+    mata: lsl_HeckmVars   = (lsl_joint == 1 ? (st_data(., tokens("`heckman'")), J(`nobs', 1, 1))    ///
                                                         : J(`nobs', 0, 0))                  // Wage variables
-    mata: lsl_SelectVars = (lsl_joint == 1 & "`select'" != "" ? (st_data(., tokens("`select'")), J(`nobs', 1, 1))    ///
+    mata: lsl_SelectVars  = (lsl_joint == 1 & "`select'" != "" ? (st_data(., tokens("`select'")), J(`nobs', 1, 1))    ///
                                                                              : J(`nobs', 0, 0))  // Wage variables
-    mata: lsl_Days       = ("`days'" != "" ? st_data(., "`days'") : J(`nobs', 1, 365))      // Days of taxyear
-    mata: lsl_Hours      = `totaltime' :- (lsl_L1, lsl_L2) :* lsl_boxcl                     // Hypothetical hours (caution: Box-Cox normalization!)
-    mata: lsl_wagecorr   = `corrBW'                                                         // Correlate wage rates and preferences?
-    mata: lsl_residanchor = ("`anchor'" != "noanchor")
+    mata: lsl_Days        = ("`days'" != "" ? st_data(., "`days'") : J(`nobs', 1, 365))      // Days of taxyear
+    mata: lsl_Hours       = `totaltime' :- (lsl_L1, lsl_L2) :* lsl_boxcl                     // Hypothetical hours (caution: Box-Cox normalization!)
+    mata: lsl_wagecorr    = `corrBW'                                                         // Correlate wage rates and preferences?
+    mata: lsl_residanchor = ("`anchor'" != "noanchor")                                       // Use actual residiuals for folks with observed wages
     
     
     //
@@ -878,10 +887,10 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     
     // Build Cholesky matrix
     CholB  = (lsl_corr ? lowertriangle(invvech(Brnd')) : diag(Brnd))    // Cholesky factors of coefficients vector
-    CholBW = J(nlei, brnd, 0)                                           // Cholesky factors between coefficients and wages
+    CholBW = J(nlei, rvars, 0)                                          // Cholesky factors between coefficients and wages
     CholW  = diag(Bsig)                                                 // Cholesky factors of wage variances
     
-    // DEBUG
+    // DEBUG (works only for singles!)
     if (nlei == 1) {
         if      (lsl_wagecorr == 1) CholBW = B[iheck + (bsel > 0) + 1] :* ((lsl_Rvars :== iC) :+ (lsl_Rvars :== iL1))'
         else if (lsl_wagecorr == 2) CholBW = B[iheck + (bsel > 0) + 1] :* (lsl_Rvars :== iC)' :+
@@ -968,7 +977,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
         SigmaW = Bsig           // Overwrite wage variance
         CholW  = diag(Bsig)     // Overwrite Cholesky factors
     }
-
+    
     // Round wage rates?
     if (lsl_round & cols(Hwage) > 0) Hwage = round(Hwage, 0.01)
     
@@ -1017,7 +1026,11 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
         lsl_Wobs[|i,1\e,1|]
         lsl_R[|lsl_draws * (n - 1) + 1,1\lsl_draws * (n - 1) + lsl_draws,cols(lsl_R) - 1|]
         */
-        if (lsl_residanchor & lsl_joint & colsum(lsl_Wobs[|i,1\e,1|]) == 1) {
+        if (lsl_residanchor & lsl_joint & wagep & colsum(lsl_Wobs[|i,1\e,1|]) == 1) {
+            /*
+            "lsl_residanchor", "lsl_joint", "wagep", "colsum(lsl_Wobs[|i,1\e,1|]) == 1"
+            lsl_residanchor, lsl_joint, wagep, colsum(lsl_Wobs[|i,1\e,1|]) == 1
+            */
             /*
             "LnWresPur"
             LnWresPur[|i,1\e,1|]
@@ -1025,7 +1038,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
             lsl_R[|lsl_draws * (n - 1) + 1,cols(lsl_R) - 1\lsl_draws * (n - 1) + lsl_draws,cols(lsl_R) - 1|] = J(lsl_draws, 1, colsum(LnWresPur[|i,1\e,1|]))
         }
         //lsl_R[|lsl_draws * (n - 1) + 1,1\lsl_draws * (n - 1) + lsl_draws,cols(lsl_R) - 1|]
-
+        
         // Run by random draw
         for (r = 1; r <= lsl_draws; r++) {
             // Init
@@ -1041,6 +1054,14 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                 //
                 // Calculate monthly earnings
                 //
+                
+                //if (lsl_wagep) lsl_Wpred[|i,1\e,.|]
+                /*
+                Hwage[|i,1\e,.|]
+                (CholBW, CholW)
+                lsl_R[|iRV,1\iRV,cols(lsl_R) - 1|]'
+                lsl_Wpred[|i,1\e,.|]
+                */
                 
                 // Adjust wages with random draws if prediction enabled
                 if (lsl_wagep) Wn = Hwage[|i,1\e,.|] :* exp(cross((CholBW, CholW)', lsl_R[|iRV,1\iRV,cols(lsl_R) - 1|]')' :* lsl_Wpred[|i,1\e,.|])
@@ -1060,7 +1081,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
 
                 // Round monthly earnings if enabled
                 if (lsl_round) Mwage = round(Mwage, 0.01)
-
+            
                 
                 //
                 // Set up tax regression covariates and predict dpi
@@ -1163,7 +1184,10 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                                                                                 (rowsum(lsl_R[|iRV,1\iRV,rvars|] :* (lsl_Rvars :== iL1)') :+ B[iheck + (bsel > 0) + 2])))
                             DWdBs     = DWdBrho = J(c, 0, 0)
                         } else {
-                            DWdBw =   Wn :* (lsl_HeckmVars[|i,1\e,.|] :- (Bsig + lsl_R[iRV,nRV]) :* colsum(lsl_HeckmVars :* LnWresPur) / (colsum(lsl_Wobs) - bwage))
+                            // BUGGY! What if lsl_R has only one column?
+                            DWdBw =   Wn :* (lsl_HeckmVars[|i,1\e,.|] :- cross((1 :+ lsl_wagep :* lsl_Wpred[|i,1\e,.|] :* lsl_R[iRV,cols(lsl_R) - 1] :/ Bsig)',
+                                                                               cross(LnWresPur, lsl_HeckmVars) :/ (colsum(lsl_Wobs) - bwage))
+                                                                      :- lsl_residanchor :* Bsig :* lsl_wagep :* colsum(lsl_Wpred[|i,1\e,.|] :* lsl_Wobs[|i,1\e,1|] :* lsl_HeckmVars[|i,1\e,.|]))
                             DWdBs = DWdBrho = DWdBsig = DWdBwcorr = J(c, 0, 0)
                         }
                     }
@@ -1318,8 +1342,16 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
             }
         } else {*/
             if (todo >= 1) {
-                G[|iwage\iwage + bwage - 1|] = G[|iwage\iwage + bwage - 1|] :+ cross(lsl_Wobs, lsl_HeckmVars :* LnWresPur :/ SigmaW:^2)
-                if (lsl_wagecorr) G[|iheck\iheck + lsl_wagecorr|] = G[|iheck\iheck + lsl_wagecorr|] :+ cross(lsl_Wobs, LnWresPur:^2 :/ SigmaW:^4 :- 1 :/ SigmaW:^2) :* B[|iheck\iheck + lsl_wagecorr|]
+                /*
+                if (lsl_wagecorr) {
+                    G[|iwage\iwage + bwage - 1|] = G[|iwage\iwage + bwage - 1|] :+ cross(lsl_Wobs, lsl_HeckmVars :* LnWresPur :/ SigmaW:^2)
+                    G[|iheck\iheck + lsl_wagecorr|] = G[|iheck\iheck + lsl_wagecorr|] :+ cross(lsl_Wobs, LnWresPur:^2 :/ SigmaW:^4 :- 1 :/ SigmaW:^2) :* B[|iheck\iheck + lsl_wagecorr|]
+                } else {*/
+                    G[|iwage\iwage + bwage - 1|] = G[|iwage\iwage + bwage - 1|] :+
+                                                   cross(LnWresPur, lsl_HeckmVars) :/ SigmaW:^2 :-
+                                                   cross(LnWresPur, LnWresPur) :* cross(LnWresPur, lsl_HeckmVars) :/ (colsum(lsl_Wobs) - bwage) :/ SigmaW:^4 :+
+                                                   colsum(lsl_Wobs) :* cross(LnWresPur, lsl_HeckmVars) :/ cross(LnWresPur, LnWresPur)
+                //}
             }
         //}
     }
