@@ -1184,13 +1184,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                                                                                 (rowsum(lsl_R[|iRV,1\iRV,rvars|] :* (lsl_Rvars :== iL1)') :+ B[iheck + (bsel > 0) + 2])))
                             DWdBs     = DWdBrho = J(c, 0, 0)
                         } else {
-                            // BUGGY! What if lsl_R has only one column?
-                            /*
-                            DWdBw =   Wn :* (lsl_HeckmVars[|i,1\e,.|] :- cross((1 :+ lsl_wagep :* lsl_Wpred[|i,1\e,.|] :* lsl_R[iRV,cols(lsl_R) - 1] :/ Bsig)',
-                                                                               cross(LnWresPur, lsl_HeckmVars) :/ (colsum(lsl_Wobs) - bwage))
-                                                                      :- lsl_residanchor :* Bsig :* lsl_wagep :* colsum(lsl_Wpred[|i,1\e,.|] :* lsl_Wobs[|i,1\e,1|] :* lsl_HeckmVars[|i,1\e,.|]))
-                            */
-                            DWdBw =   Wn :* (lsl_HeckmVars[|i,1\e,.|] :- cross(LnWresPur, lsl_HeckmVars) :/ (colsum(lsl_Wobs) - bwage))
+                            DWdBw = Wn :* (lsl_HeckmVars[|i,1\e,.|] :- cross(LnWresPur, lsl_HeckmVars) :/ (colsum(lsl_Wobs) - bwage))
                             if (lsl_wagep) DWdBw = DWdBw :- Wn :* (cross((lsl_Wpred[|i,1\e,.|] :* lsl_R[iRV,cols(lsl_R) - 1] :/ SigmaW)', cross(LnWresPur, lsl_HeckmVars) :/ (colsum(lsl_Wobs) - bwage))
                                                                    :+ lsl_residanchor :* SigmaW :* colsum(lsl_Wpred[|i,1\e,.|] :* lsl_Wobs[|i,1\e,1|] :* lsl_HeckmVars[|i,1\e,.|]))
                             DWdBs = DWdBrho = DWdBsig = DWdBwcorr = J(c, 0, 0)
@@ -1347,16 +1341,15 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
             }
         } else {*/
             if (todo >= 1) {
-                /*
                 if (lsl_wagecorr) {
                     G[|iwage\iwage + bwage - 1|] = G[|iwage\iwage + bwage - 1|] :+ cross(lsl_Wobs, lsl_HeckmVars :* LnWresPur :/ SigmaW:^2)
                     G[|iheck\iheck + lsl_wagecorr|] = G[|iheck\iheck + lsl_wagecorr|] :+ cross(lsl_Wobs, LnWresPur:^2 :/ SigmaW:^4 :- 1 :/ SigmaW:^2) :* B[|iheck\iheck + lsl_wagecorr|]
-                } else {*/
+                } else {
                     G[|iwage\iwage + bwage - 1|] = G[|iwage\iwage + bwage - 1|] :+
                                                    cross(LnWresPur, lsl_HeckmVars) :/ SigmaW:^2 :-
                                                    cross(LnWresPur, LnWresPur) :* cross(LnWresPur, lsl_HeckmVars) :/ (colsum(lsl_Wobs) - bwage) :/ SigmaW:^4 :+
                                                    colsum(lsl_Wobs) :* cross(LnWresPur, lsl_HeckmVars) :/ cross(LnWresPur, LnWresPur)
-                //}
+                }
             }
         //}
     }
