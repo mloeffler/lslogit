@@ -492,7 +492,7 @@ program define lslogit_Estimate, eclass
     mata: lsl_Days        = ("`days'" != "" ? st_data(., "`days'") : J(`nobs', 1, 365))      // Days of taxyear
     mata: lsl_Hours       = `totaltime' :- (lsl_L1, lsl_L2) :* lsl_boxcl                     // Hypothetical hours (caution: Box-Cox normalization!)
     mata: lsl_wagecorr    = `corrBW'                                                         // Correlate wage rates and preferences?
-    mata: lsl_residanchor = ("`anchor'" != "noanchor")                                       // Use actual residiuals for folks with observed wages
+    mata: lsl_residanchor = ("`anchor'" != "noanchor") & (`wagep' == 1)                      // Use actual residiuals for folks with observed wages
     
     
     //
@@ -1185,9 +1185,14 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                             DWdBs     = DWdBrho = J(c, 0, 0)
                         } else {
                             // BUGGY! What if lsl_R has only one column?
+                            /*
                             DWdBw =   Wn :* (lsl_HeckmVars[|i,1\e,.|] :- cross((1 :+ lsl_wagep :* lsl_Wpred[|i,1\e,.|] :* lsl_R[iRV,cols(lsl_R) - 1] :/ Bsig)',
                                                                                cross(LnWresPur, lsl_HeckmVars) :/ (colsum(lsl_Wobs) - bwage))
                                                                       :- lsl_residanchor :* Bsig :* lsl_wagep :* colsum(lsl_Wpred[|i,1\e,.|] :* lsl_Wobs[|i,1\e,1|] :* lsl_HeckmVars[|i,1\e,.|]))
+                            */
+                            DWdBw =   Wn :* (lsl_HeckmVars[|i,1\e,.|] :- cross(LnWresPur, lsl_HeckmVars) :/ (colsum(lsl_Wobs) - bwage))
+                            if (lsl_wagep) DWdBw = DWdBw :- Wn :* (cross((lsl_Wpred[|i,1\e,.|] :* lsl_R[iRV,cols(lsl_R) - 1] :/ SigmaW)', cross(LnWresPur, lsl_HeckmVars) :/ (colsum(lsl_Wobs) - bwage))
+                                                                   :+ lsl_residanchor :* SigmaW :* colsum(lsl_Wpred[|i,1\e,.|] :* lsl_Wobs[|i,1\e,1|] :* lsl_HeckmVars[|i,1\e,.|]))
                             DWdBs = DWdBrho = DWdBsig = DWdBwcorr = J(c, 0, 0)
                         }
                     }
