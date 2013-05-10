@@ -1827,7 +1827,7 @@ cap program drop lslogit_cov
  * Conditional Logit but integrating out wage prediction errors (Wrapper programm)
  */
 program define lslogit_cov
-    syntax [, cov NOHEADer NOWAGE NOPREF]
+    syntax [, cov NOHEADer NOWAGE NOPREF post]
     
     // Predict command works only with lslogit estimates
     if ("`e(cmd)'" != "lslogit") error 301
