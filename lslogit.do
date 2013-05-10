@@ -223,14 +223,35 @@ program define lslogit_Estimate, eclass
     }
     
     // Validate Wage Prediction Options
-    if (`n_wagep' == 0) local wagep = 0     // No wage prediction
+    if (`n_wagep' == 0) {
+        // Joint estimation with correlation?
+        if (`corrBW' != 0) {
+            local wagep       = 1               // Run integration over wage errors
+            local n_wagep     = `n_leisure'     // Fake number of wage prediction indicators
+            local wagep_force = 1               // Run wage error prediction for full sample
+        }
+        // Never mind
+        else {
+            local wagep       = 0   // No wage prediction
+            local wagep_force = 0
+        }
+    }
     else {
+        // Wage prediction error settings given, stay calm
+        local wagep_force = 0
+        
         // Check wage prediction settings
         foreach wagep of local wagepred {
             cap bys `group': assert `wagep' == `wagep'[_N] if `touse'
             if (_rc != 0) {
                 di in r "wage prediction error settings ('`wagep'') need to be constant within households"
                 exit 498
+            }
+            
+            // Check that wage prediction error settings are in line with wage correlation settings
+            if (`corrBW' != 0) {
+                cap assert `wagep' == 1 if `touse'
+                if (_rc != 0) local wagep_force = 1
             }
         }
         
@@ -247,6 +268,9 @@ program define lslogit_Estimate, eclass
             exit 498
         }
     }
+    
+    // Show info that wage prediction settings will be ignored
+    if (`wagep_force' == 1) di as text "(you selected option 'wagecorr', so wage prediction errors will be integrated out anyway)"
     
     // No need to take random draws
     if (`wagep' == 0 & "`randvars'" == "") local draws = 1
@@ -500,8 +524,9 @@ program define lslogit_Estimate, eclass
     //
     
     mata: lsl_wagep = `wagep'                                                   // Run Wage Prediction
-    mata: lsl_Wpred = (lsl_wagep == 1 ? st_data(., "`wagepred'")                ///
-                                      : J(`nobs', 1 + cols(lsl_L2), 0))         // Dummies enabling or disabling the wage prediction
+    mata: lsl_Wpred = (lsl_wagep ? (`wagep_force' ? J(`nobs', `n_wagep', 1)     ///
+                                                  : st_data(., "`wagepred'"))   ///
+                                 : J(`nobs', 1 + cols(lsl_L2), 0))              // Dummies enabling or disabling the wage prediction for individuals
     mata: lsl_Sigma = ("`hecksigma'" != "" ? strtoreal(tokens("`hecksigma'"))   ///
                                            : J(1, `n_hecksig', 0))              // Estimated variance of Heckman correction
     
