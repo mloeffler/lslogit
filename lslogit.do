@@ -1355,7 +1355,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
         // Add to overall statistics
         lnf = lnf + lsl_Weight[i] * log(lsum / lsl_draws)
         if (todo >= 1) G = G + lsl_Weight[i] * (lsum > 1e-25 ? Gsum / lsum : J(1, b, 0))
-        if (todo == 2) H = H + lsl_Weight[i] * (lsum > 1e-25 ? H2sum / lsum - cross(Gsum, H1sum) / lsum^2: J(b, b, 0))
+        if (todo == 2) H = H + lsl_Weight[i] * (lsum > 1e-25 ? H2sum / lsum - cross(Gsum, H1sum) / lsum^2 : J(b, b, 0))
     }
     
     // Add likelihood of wage equation?
@@ -1553,13 +1553,6 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
                 //
                 // Calculate monthly earnings
                 //
-                
-                Wn
-                lsl_Hwage[|i,1\e,.|]
-                lsl_CholBW
-                lsl_CholW
-                lsl_R[|iRV,1\iRV,cols(lsl_R) - 1|]'
-                lsl_Wpred[|i,1\e,.|]
                 
                 // Adjust wages with random draws if prediction enabled
                 if (lsl_wagep) Wn = lsl_Hwage[|i,1\e,.|] :* exp(cross((lsl_CholBW, lsl_CholW)', lsl_R[|iRV,1\iRV,cols(lsl_R) - 1|]')' :* lsl_Wpred[|i,1\e,.|])
@@ -1928,7 +1921,7 @@ program define lslogit_p, rclass
     }
     
     // Run evaluator and predict pc1/xb/dudes/...
-    if (!inlist(trim("`opt'"), "", "wage")) mata: lslogit_p(tokens("`varlist'"), "`touse'", tokens("`opt'"))
+    if (!inlist(trim("`opt'"), "", "wages")) mata: lslogit_p(tokens("`varlist'"), "`touse'", tokens("`opt'"))
     
     
     //
@@ -1994,7 +1987,7 @@ program define lslogit_cov
     }
     
     // Add wage correlation terms?
-    if (`e(wagecorr)' == 1 & "`nowage'" == "") {
+    if (`e(wagecorr)' & "`nowage'" == "") {
         local iC  : word count `e(cx)' C
         local iL1 : word count `e(cx)' C C2 `e(leisure)' `e(lx1)' L1
         if (strpos(" `e(randvars)' ", " `iC' ") > 0 & strpos(" `e(randvars)' ", " `iL1' ") > 0) {
