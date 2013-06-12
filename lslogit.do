@@ -77,7 +77,7 @@ program define lslogit_Estimate, eclass
                                                    boxcc(integer 1000) boxcl(integer 80) HWage(varlist numeric min=1 max=2) ///
                                                    TAXReg(name) tria1(varlist numeric) tria2(varlist numeric)               ///
                                                    WAGEPred(varlist numeric min=1 max=2) HECKSIGma(numlist min=1 max=2)     ///
-                                                   RANDvars(string) corr DRaws(integer 50) burn(integer 15)                 ///
+                                                   RANDvars(numlist ascending) corr DRaws(integer 50) burn(integer 15)                 ///
                                                    HECKMan(varlist) wagecorr noanchor TECHnique(string)                     ///
                                                    noround Quiet Verbose lambda(real 0) force(varname numeric)              ///
                                                    difficult trace search(name) iterate(integer 100) method(name)           ///
@@ -539,7 +539,6 @@ program define lslogit_Estimate, eclass
     
     mata: lsl_draws = strtoreal(st_local("draws"))                                                                      // Number of draws
     mata: lsl_burn  = strtoreal(st_local("burn"))                                                                       // Number of draws to burn
-    mata: st_local("randvars", invtokens(strofreal(sort(strtoreal(tokens("`randvars'"))', 1))'))                        // Sort random coefficients
     mata: lsl_Rvars = ("`randvars'" != "" ? strtoreal(tokens("`randvars'"))' : J(0, 1, 0))                              // Random coefficients
     mata: lsl_corr  = ("`corr'" != "")                                                                                  // Random coefficients correlated?
     mata: lsl_R     = (`rvars' > 0 ? invnormal(halton(lsl_groups*lsl_draws, `rvars', 1+lsl_burn)) : J(`nobs', 0, 0))    // Halton sequences
