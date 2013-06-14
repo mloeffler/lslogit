@@ -79,7 +79,7 @@ program define lslogit_Estimate, eclass
                                                    WAGEPred(varlist numeric min=1 max=2) HECKSIGma(numlist min=1 max=2)     ///
                                                    RANDvars(numlist ascending) corr DRaws(integer 50) burn(integer 15)                 ///
                                                    HECKMan(varlist) wagecorr noanchor TECHnique(string)                     ///
-                                                   noround Quiet Verbose lambda(real 0) force(varname numeric)              ///
+                                                   round Quiet Verbose lambda(real 0) force(varname numeric)              ///
                                                    difficult trace search(name) iterate(integer 100) method(name)           ///
                                                    gradient hessian debug Level(integer `c(level)') from(string)]
     
@@ -422,7 +422,7 @@ program define lslogit_Estimate, eclass
     // Setup data
     //
     
-    mata: lsl_round  = ("`round'" != "noround")                             // To round, or not to round?
+    mata: lsl_round  = ("`round'" != "")                                    // To round, or not to round?
     mata: lsl_ufunc  = st_local("ufunc")                                    // Utility function
     mata: lsl_Weight = ("`exp'" != "" ? st_data(., "`exp'") ///
                                       : J(`nobs', 1, 1))                    // Weight
@@ -649,7 +649,7 @@ program define lslogit_Estimate, eclass
     ereturn local draws          `draws'
     ereturn local burn           `burn'
     ereturn local totaltime      `totaltime'
-    ereturn local round       = ("`round'" != "noround")
+    ereturn local round       = ("`round'" != "")
     ereturn local taxreg      = ("`taxreg'" != "")
     ereturn local group          `group'
     ereturn local groups         `n_groups'
@@ -707,11 +707,13 @@ program define lslogit_Estimate, eclass
     // Clean up
     //
     
+    /*
     foreach m in round ufunc Weight Y Hwage boxcc boxcl C CX C2X L1 LX1 L2X1 L2 LX2 L2X2 Xind X joint ///
                  HeckmVars Days Hours wagep Wpred Sigma TaxregB TaxregIas1 TaxregIas2 TaxregVars ///
                  groups J draws burn Rvars corr R {
         cap mata mata drop lsl_`m'
     }
+    */
     
     
     //
