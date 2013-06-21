@@ -74,14 +74,14 @@ program define lslogit_Estimate, eclass
     syntax varname(numeric) [if] [in] [fweight/], GRoup(varname numeric)                                                    ///
                                                   Consumption(varname numeric) Leisure(varlist numeric min=1 max=2)         ///
                                                   [BOXCox QUADratic TRANslog                                                ///
-                                                   cx(varlist numeric)  lx1(varlist numeric)  lx2(varlist numeric)          ///
-                                                   c2x(varlist numeric) l2x1(varlist numeric) l2x2(varlist numeric)         ///
-                                                   INDeps(varlist) TOTALTime(integer 80) DAYs(varname numeric)              ///
+                                                   cx(varlist numeric fv) lx1(varlist numeric fv) lx2(varlist numeric fv)   ///
+                                                   c2x(varlist numeric fv) l2x1(varlist numeric fv) l2x2(varlist numeric fv) ///
+                                                   INDeps(varlist fv) TOTALTime(integer 80) DAYs(varname numeric)           ///
                                                    boxcc(integer 1000) boxcl(integer 80) HWage(varlist numeric min=1 max=2) ///
                                                    TAXReg(name) tria1(varlist numeric) tria2(varlist numeric)               ///
                                                    WAGEPred(varlist numeric min=1 max=2) HECKSIGma(numlist min=1 max=2)     ///
                                                    RANDvars(numlist ascending) corr DRaws(integer 50) burn(integer 15)                 ///
-                                                   HECKMan(varlist) wagecorr noanchor TECHnique(string)                     ///
+                                                   HECKMan(varlist numeric fv) wagecorr noanchor TECHnique(string)          ///
                                                    round Quiet Verbose lambda(real 0) force(varname numeric)              ///
                                                    difficult trace search(name) iterate(integer 100) method(name)           ///
                                                    gradient hessian debug Level(integer `c(level)') from(string)]
