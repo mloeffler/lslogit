@@ -8,7 +8,6 @@ lslogit
 - Observed heterogeneity in preferences as well as alternative specific taste shifters.
 - Unobserved preference heterogeneity via multivariate normally distributed random coefficients.
 - Integrating out the wage prediction error in order to use of the full wage distribution.
-
 - Automatic calculation of the marginal utility with respect to consumption.
 - Simultaneous estimation of wages and preferences (work in progress).
 
