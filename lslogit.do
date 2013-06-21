@@ -12,6 +12,7 @@ cap program drop lslogit
  * Wrapper programm
  */
 program define lslogit
+    version 12
     syntax [varlist] [if] [in] [fweight/] [, cov *]
     
     if ("`cov'" != "") lslogit_cov `0'
@@ -31,6 +32,7 @@ cap program drop lslogit_Replay
  * @quiet `quiet' Suppress additional notes on estimated model
  */
 program define lslogit_Replay
+    version 12
     syntax [, Level(integer `c(level)') Quiet]
     
     // Set up auxiliary stuff
@@ -68,6 +70,7 @@ cap program drop lslogit_Estimate
  * Set up data and run estimation
  */
 program define lslogit_Estimate, eclass
+    version 12
     syntax varname(numeric) [if] [in] [fweight/], GRoup(varname numeric)                                                    ///
                                                   Consumption(varname numeric) Leisure(varlist numeric min=1 max=2)         ///
                                                   [BOXCox QUADratic TRANslog                                                ///
@@ -1583,6 +1586,7 @@ cap program drop lslogit_p
  * @param `pc1' Predict choice probabilities
  */
 program define lslogit_p, rclass
+    version 12
     syntax newvarlist(min=1 max=4) [if] [in] [, pc1 xb DUdes WAGEs INCrease(numlist min=1 max=2)]
     
     
@@ -1875,6 +1879,7 @@ cap program drop lslogit_cov
  * Conditional Logit but integrating out wage prediction errors (Wrapper programm)
  */
 program define lslogit_cov
+    version 12
     syntax [, cov NOHEADer NOWAGE NOPREF post]
     
     // Predict command works only with lslogit estimates
