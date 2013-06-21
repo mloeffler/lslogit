@@ -2,7 +2,7 @@
  *
  * lslogit -- ESTIMATING MIXED LOGIT LABOR SUPPLY MODELS WITH STATA
  * 
- * (c) 2012 - Max Löffler
+ * (c) 2013 - Max Löffler
  *
  *****************************************************************************/
 
@@ -15,7 +15,7 @@ cap program drop lslogit
  */
 program define lslogit
     if (replay()) {
-        if (`"`e(cmd)'"' != "lslogit")   error 301
+        if ("`e(cmd)'" != "lslogit") error 301
         lslogit_Replay `0'
     }
     else lslogit_Estimate `0'
@@ -34,17 +34,28 @@ program define lslogit_Replay
     // Set up auxiliary stuff
     local diparm
     if ("`quiet'" == "") {
+        // Auxiliary estimation results
         foreach aux in sigma_w1 sigma_w2 dudes {
             if (e(`aux') != .) {
                 local val = e(`aux')
                 local diparm `diparm' diparm(__lab__, value(`val') label("[`aux']"))
             }
         }
+        
+        // Model description
+        local footnote "Model:"
+        if      ("`e(ufunc)'" == "quad")   local footnote "`footnote' - Quadratic utility function"
+        else if ("`e(ufunc)'" == "tran")   local footnote "`footnote' - Translog utility function"
+        else if ("`e(ufunc)'" == "boxcox") local footnote "`footnote' - Box-Cox utility function"
+        if ("`e(randvars)'" != "")         local footnote "`footnote'" _newline "       - Random coefficients (`e(randvars)')"
+        if ("`e(corr)'" == "1")            local footnote "`footnote' with correlation"
+        if ("`e(wagep)'" == "1")           local footnote "`footnote'" _newline "       - Wage prediction error integrated out"
+        if ("`e(draws)'" != "1")           local footnote "`footnote'" _newline "       - Approximated using `e(draws)' Halton sequences"
     }
     
     // Display output
     ml display, level(`level') `diparm'
-                               /*diparm(ln_consum, f(`dudes') d(0) label("% dU/dc>=0"))*/
+    if ("`footnote'" != "") di in gr "`footnote'"
 end
 
 cap program drop lslogit_Estimate
@@ -78,7 +89,7 @@ program define lslogit_Estimate, eclass
     // Mark the estimation sample
     marksample touse
     markout `touse' `varlist' `group' `consumption' `leisure' `cx' `lx1' `lx2' `c2x' `l2x1' `l2x2'  ///
-                    `indeps'`wagepred' `days' `tria1' `tria2' `heckman' `select'
+                    `indeps' `wagepred' `days' `tria1' `tria2' `heckman' `select'
     
     // Verbose mode
     if ("`verbose'" == "") local qui qui
@@ -121,7 +132,7 @@ program define lslogit_Estimate, eclass
         exit 498
     }
     // If Box-Cox, make it easy.
-    if ("`ufunc'" == "boxcox" & ("`heckman'" != "" | "`select'" != "" /*| "`randvars'" != ""*/ | "`wagepred'" != "")) {
+    if ("`ufunc'" == "boxcox" & ("`heckman'" != "" | "`select'" != "")) {
         di in r "all work and no play makes lslogit a dull command" _newline   ///
                 "all work and no play makes lslogit a dull command" _newline   ///
                 "all work and no play makes lslogit a dull command" _newline   ///
@@ -153,19 +164,21 @@ program define lslogit_Estimate, eclass
         exit 498
     }
     // Check sample selection
-    /*
-    if ("`heckman'" != "") {
-        qui count if log(`hwage') == .
-        if ("`select'" != "" & r(N) == 0) {
-            di in r "wage variable never censored because of selection"
-            exit 498
-        }
-        else if ("`select'" == "" & r(N) > 0) {
-            di in r "wage variable censored, use option select()"
-            exit 498
+    if ("`hwage'" != "") {
+        foreach hw of local hwage {
+            qui count if log(`hw') == . & `touse'
+            if ("`heckman'" != "") {
+                if ("`select'" != "" & r(N) == 0) {
+                    di in r "wage variable `hw' never censored because of selection"
+                    exit 498
+                }
+            }
+            if ("`heckman'" == "" & r(N) > 0) {
+                di in r "wage variable `hw' censored, use joint estimation"
+                exit 498
+            }
         }
     }
-    */
     
     // Get variable count
     local n_leisure  : word count `leisure'
@@ -189,10 +202,10 @@ program define lslogit_Estimate, eclass
     if (`n_wagep' == 0) local wagep = 0     // No wage prediction
     else {
         // Wage prediction enabled
-        if (`n_wagep' == `n_leisure' & `n_wagep' == `n_hwage' & `n_wagep' == `n_hecksig') {
+        if (`n_wagep' == `n_leisure' & `n_wagep' == `n_hwage' & (`n_wagep' == `n_hecksig' | "`heckman'" != "")) {
             tempvar preds
             qui egen `preds' = rowtotal(`wagepred') if `touse'
-            qui count if inlist(`preds', 1, 2) & `touse'
+            qui count if `preds' >= 1 & (`touse')
             local wagep = (r(N) > 0)
         }
         // Settings incorrect
@@ -212,10 +225,10 @@ program define lslogit_Estimate, eclass
             // Load tax regression estimates
             qui est restore `taxreg'
             mat `taxreg_from' = e(b)
-            local taxreg_betas : colnames `taxreg_from'
+            local taxreg_betas   : colnames `taxreg_from'
             local n_taxreg_betas : word count `taxreg_betas'
             local taxreg_vars
-            local start = 1 + 2 * (`n_leisure' + `n_taxrias1' + `n_taxrias2')         // + `n_leisure' * 5
+            local start = 1 + 2 * (`n_leisure' + `n_taxrias1' + `n_taxrias2')
             forval x = `start'/`n_taxreg_betas' {
                 local var : word `x' of `taxreg_betas'
                 if ("`var'" != "_cons") local taxreg_vars `taxreg_vars' `var'
@@ -362,32 +375,36 @@ program define lslogit_Estimate, eclass
     // Setup data
     //
     
-    mata: lsl_round  = ("`round'" != "noround")                                                     // To round, or not to round?
-    mata: lsl_ufunc  = st_local("ufunc")                                                            // Utility function
-    mata: lsl_Weight = ("`exp'" != "" ? st_data(., "`exp'") : J(`nobs', 1, 1))                      // Weight
-    mata: lsl_Y      = st_data(., "`varlist'")                                                      // Left hand side
-    mata: lsl_Hwage  = (`n_hwage' > 0 ? st_data(., tokens("`hwage'")) : J(`nobs', `n_leisure', 0))  // Hourly wage rates
+    mata: lsl_round  = ("`round'" != "noround")                             // To round, or not to round?
+    mata: lsl_ufunc  = st_local("ufunc")                                    // Utility function
+    mata: lsl_Weight = ("`exp'" != "" ? st_data(., "`exp'") ///
+                                      : J(`nobs', 1, 1))                    // Weight
+    mata: lsl_Y      = st_data(., "`varlist'")                              // Left hand side
+    mata: lsl_Hwage  = (`n_hwage' > 0 ? st_data(., tokens("`hwage'"))   ///
+                                      : J(`nobs', `n_leisure', 0))          // Hourly wage rates
+    mata: lsl_boxcc = (lsl_ufunc == "boxcox" & `boxcc' > 0 ? `boxcc' : 1)   // Normalizing constant for Box-Cox consumption
+    mata: lsl_boxcl = (lsl_ufunc == "boxcox" & `boxcl' > 0 ? `boxcl' : 1)   // Normalizing constant for Box-Cox leisure
     
     //
     // Right hand side
     //
     
     // Consumption, squared and interactions
-    mata: lsl_C   = st_data(., "`consumption'") :/ (lsl_ufunc == "boxcox" & `boxcc' > 0 ? `boxcc' : 1)
+    mata: lsl_C   = st_data(., "`consumption'") :/ lsl_boxcc
     mata: lsl_CX  = ((`n_cxias'  > 0 ? st_data(., tokens("`cx'"))   ///
                                      : J(`nobs', 0, 0)), J(`nobs', 1, 1))
     mata: lsl_C2X = ((`n_c2xias' > 0 ? st_data(., tokens("`c2x'"))  ///
-                                     : J(`nobs', 0, 0)), J(`nobs', ("`ufunc'" != "boxcox" ? 1 : 0), 1))
+                                     : J(`nobs', 0, 0)), J(`nobs', (lsl_ufunc != "boxcox" ? 1 : 0), 1))
     
     // Leisure, squared and interactions
     forval i = 1/2 {
         local var : word `i' of `leisure'
         if ("`var'" != "") {
-            mata: lsl_L`i'   = st_data(., "`var'") :/ (lsl_ufunc == "boxcox" & `boxcl' > 0 ? `boxcl' : 1)
+            mata: lsl_L`i'   = st_data(., "`var'") :/ lsl_boxcl
             mata: lsl_LX`i'  = ((`n_lx`i'ias'  >  0 ? st_data(., tokens("`lx`i''"))     ///
                                                     : J(`nobs', 0, 0)), J(`nobs', 1, 1))
             mata: lsl_L2X`i' = ((`n_l2x`i'ias' >  0 ? st_data(., tokens("`l2x`i''"))    ///
-                                                    : J(`nobs', 0, 0)), J(`nobs', ("`ufunc'" != "boxcox" ? 1 : 0), 1))
+                                                    : J(`nobs', 0, 0)), J(`nobs', (lsl_ufunc != "boxcox" ? 1 : 0), 1))
         }
         else {
             mata: lsl_L`i'   = J(`nobs', 0, 0)
@@ -416,29 +433,24 @@ program define lslogit_Estimate, eclass
     // Joint wage estimation
     //
     
-    mata: lsl_sml        = ("`sml'" != "")                                                                                       // Run joint estimation?
-    mata: lsl_fml        = ("`fml'" != "")                                                                                       // Run joint estimation?
+    mata: lsl_sml        = ("`sml'" != "")                                                  // Simulataneous joint estimation?
+    mata: lsl_fml        = ("`fml'" != "")                                                  // Full ML joint estimation?
     mata: lsl_HeckmVars  = (lsl_sml == 1 | lsl_fml == 1 ? (st_data(., tokens("`heckman'")), J(`nobs', 1, 1))    ///
-                                                        : J(`nobs', 0, 0))                    // Wage variables
+                                                        : J(`nobs', 0, 0))                  // Wage variables
     mata: lsl_SelectVars = ((lsl_sml == 1 | lsl_fml == 1) & "`select'" != "" ? (st_data(., tokens("`select'")), J(`nobs', 1, 1))    ///
                                                                              : J(`nobs', 0, 0))  // Wage variables
-    mata: lsl_Days       = ("`days'" != "" ? st_data(., st_local("days"))   ///
-                                           : J(`nobs', 1, 365))                                      // Days of taxyear
-    mata: lsl_Hours      = `totaltime' :- (lsl_L1, lsl_L2)                                                                             // Hypothetical hours
+    mata: lsl_Days       = ("`days'" != "" ? st_data(., "`days'") : J(`nobs', 1, 365))      // Days of taxyear
+    mata: lsl_Hours      = `totaltime' :- (lsl_L1, lsl_L2) :* lsl_boxcl                     // Hypothetical hours (caution: Box-Cox normalization!)
     
     //
     // Wage Prediction Stuff
     //
     
-    mata: lsl_wagep = `wagep'                                                            // Run Wage Prediction
-    if (`wagep' == 1) {
-        mata: lsl_Wpred = st_data(., ("`wagepred'"))                                     // Dummies enabling or disabling the wage prediction
-        mata: lsl_Sigma = J(1, `n_hecksig', 0)                                           // Estimated variance of Heckman correction
-        forval i = 1/`n_hecksig' {
-            local sig : word `i' of `hecksigma'
-            mata: lsl_Sigma[1,`i'] = `sig'
-        }
-    }
+    mata: lsl_wagep = `wagep'                                                   // Run Wage Prediction
+    mata: lsl_Wpred = (lsl_wagep == 1 ? st_data(., "`wagepred'")                ///
+                                      : J(`nobs', 1 + cols(lsl_L2), 0))         // Dummies enabling or disabling the wage prediction
+    mata: lsl_Sigma = ("`hecksigma'" != "" ? strtoreal(tokens("`hecksigma'"))   ///
+                                           : J(1, `n_hecksig', 0))              // Estimated variance of Heckman correction
     
     //
     // Tax regression
@@ -450,18 +462,19 @@ program define lslogit_Estimate, eclass
         mata: lsl_TaxregVars = st_data(., tokens("`taxreg_vars'"))                                   // Variables that are independent of m_wage
     }
     
+    
     //
     // Group level stuff
     //
-    qui duplicates report `group'
-    mata: lsl_groups = st_numscalar("r(unique_value)")   // Number of groups
-    tempvar choices
-    by `group': gen `choices' = _N
-    mata: lsl_J = st_data(., st_local("choices"))        // Choices per group
+    
+    mata: lsl_J = panelsetup(st_data(., "`group'"), 1)
+    mata: lsl_groups = rows(lsl_J)
+    
     
     //
     // Random draws
     //
+    
     mata: lsl_draws = strtoreal(st_local("draws"))                                                                   // Number of draws
     mata: lsl_burn  = strtoreal(st_local("burn"))                                                                    // Number of draws to burn
     mata: st_local("randvars", invtokens(strofreal(sort(strtoreal(tokens("`randvars'"))', 1))'))                    // Sort random coefficients
@@ -533,6 +546,8 @@ program define lslogit_Estimate, eclass
     // Estimate
     //
     
+    scalar lsl_dudes = .
+    
     ml model `method'`debug' lslogit_d2() `eq_consum' `eq_leisure' `eq_indeps' `eq_boxcox' `eq_rands' `eq_heckm' ///
             if `touse' `wgt', group(`group') `initopt' search(off) iterate(`iterate') nopreserve max `difficult' `trace' `gradient' `hessian' technique(`technique')
     
@@ -543,37 +558,70 @@ program define lslogit_Estimate, eclass
     // Save model setup
     ereturn local title   "Mixed Logit Labor Supply Model"
     ereturn local cmd     "lslogit"
-    ereturn local predict "lslpred"
+    ereturn local predict "lslogit_p"
     ereturn local ufunc    `ufunc'
+    ereturn local wagep    `wagep'
     ereturn local draws    `draws'
+    ereturn local burn     `burn'
+    ereturn local totaltime `totaltime'
+    ereturn local round  = ("`round'" != "noround")
+    ereturn local taxreg = ("`taxreg'" != "")
     ereturn local group    `group'
+    ereturn local groups   `n_groups'
     ereturn local depvar   `varlist'
     ereturn local consum   `consumption'
     ereturn local leisure  `leisure'
     
     // Save varlists
-    if ("`cx'"     != "") ereturn local cx     `cx'
-    if ("`c2x'"    != "") ereturn local c2x    `c2x'
-    if ("`lx1'"    != "") ereturn local lx1    `lx1'
-    if ("`l2x1'"   != "") ereturn local l2x1   `l2x1'
-    if ("`lx2'"    != "") ereturn local lx2    `lx2'
-    if ("`l2x2'"   != "") ereturn local l2x2   `l2x2'
-    if ("`indeps'" != "") ereturn local indeps `indeps'
-    if (`n_randvars' > 0) {
+    if ("`cx'"       != "") ereturn local cx       `cx'
+    if ("`c2x'"      != "") ereturn local c2x      `c2x'
+    if ("`lx1'"      != "") ereturn local lx1      `lx1'
+    if ("`l2x1'"     != "") ereturn local l2x1     `l2x1'
+    if ("`lx2'"      != "") ereturn local lx2      `lx2'
+    if ("`l2x2'"     != "") ereturn local l2x2     `l2x2'
+    if ("`indeps'"   != "") ereturn local indeps   `indeps'
+    if ("`wagepred'" != "") ereturn local wagepred `wagepred'
+    if ("`hwage'"    != "") ereturn local hwage    `hwage'
+    if ("`days'"     != "") ereturn local days     `days'
+    if ("`ufunc'" == "boxcox") {    // Box-Cox
+        if ("`boxcc'" != "") ereturn local boxcc   `boxcc'
+        if ("`boxcl'" != "") ereturn local boxcl   `boxcl'
+    }
+    if (`n_randvars' > 0) {         // Random coefficients
         ereturn local randvars `randvars'
         ereturn local corr = cond("`corr'" != "", 1, 0)
     }
+    if ("`taxreg'" != "") {         // Tax regression
+        ereturn matrix taxreg_b = `taxreg_from', copy
+        if ("`taxreg_vars'" != "") ereturn local taxreg_vars `taxreg_vars'
+        if ("`tria1'" != "") ereturn local taxreg_ia1 `tria1'
+        if ("`tria2'" != "") ereturn local taxreg_ia2 `tria2'
+    }
     
     // Display coefficients as auxiliary
-    ereturn scalar k_aux = ("`ufunc'"  == "boxcox") * (1 + `n_leisure') + ("`select'" != "") * 2 +  ///
+    ereturn scalar k_aux = ("`ufunc'" == "boxcox") * (1 + `n_leisure') + ("`select'" != "") * 2 +  ///
                            `n_randvars' * cond("`corr'" != "", (`n_randvars' + 1) / 2, 1)
     
     // Pseudo R2 (may be misleading as it refers to the null-model, LR and p value refer to init values...)
     if ("`search'" != "off" & "`from'" == "") ereturn scalar r2_p = 1 - e(ll)/`ll_0'
     
     // Additional output
+    if (lsl_dudes != .) ereturn scalar dudes = lsl_dudes
+    /*
     foreach aux in sigma_w1 sigma_w2 dudes {
-        if (r(`aux') != .) ereturn scalar `aux' = r(`aux')
+        di as error "`aux' = " `aux'
+        if (`aux' != "") ereturn scalar `aux' = ``aux''
+    }
+    */
+    
+    //
+    // Clean up
+    //
+    
+    foreach m in round ufunc Weight Y Hwage boxcc boxcl C CX C2X L1 LX1 L2X1 L2 LX2 L2X2 Xind X sml fml ///
+                 HeckmVars SelectVars Days Hours wagep Wpred Sigma TaxregB TaxregIas1 TaxregIas2 TaxregVars ///
+                 groups J draws burn Rvars corr R {
+        cap mata mata drop lsl_`m'
     }
     
     //
@@ -584,7 +632,7 @@ program define lslogit_Estimate, eclass
 end
 
 // Drop mata functions if they exist
-foreach fct in lslogit_d2 lsl_boxcox lsl_boxcox_g lsl_boxcox_h {
+foreach fct in lslogit_d2 lsl_boxcox lsl_boxcox_g lsl_boxcox_h lslogit_p {
     cap mata mata drop `fct'()
 }
 mata:
@@ -600,7 +648,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     external string scalar  lsl_ufunc           // Functional form
     external real scalar    lsl_groups          // Number of groups
     external real colvector lsl_Y               // Left hand side variable
-    external real colvector lsl_J               // Number of choices per group
+    external real matrix    lsl_J               // Panel setup data
     external real matrix    lsl_X               // Right hand side variables
     external real colvector lsl_Weight          // Group weights
     
@@ -628,6 +676,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     external real matrix    lsl_TaxregIas2      //   Wage interaction variables of tax regression
     
     external real scalar    lsl_round           // To round, or not to round.
+    external real scalar    lsl_boxcc           // Normalizing constant for Box-Cox consumption
     
     external real colvector lsl_C
     external real matrix    lsl_CX
@@ -644,30 +693,29 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     // Declarations
     //
     
-    real scalar    n, i, c, e, nobs, nlei, ncons, dudes
+    real scalar    n, i, c, e, nobs, nlei, ncons, dudes, wagep
     real scalar    b, bfix, bwage, bsel, bheck, blam, brnd
     real rowvector Bfix, Bwage, Bsel, Brho, Bsig, Brnd, Zeta, Beta
     
-    real scalar    nRV, rvars, iRV, r, rv, rv2, iRow, iCol, nRows, nCols,
+    real scalar    nRV, rvars, iRV, r,
                    iwage, isel, iheck, ilam, irnd, ilC, ilL1, ilL2
     real matrix    Sigm
     
-    real scalar    hv
     real matrix    Hwage, Hwobs, Hwres, Select, SelRes, Lambda, Wn
     real matrix    Mwage, TaxregX1, TaxregX2, TaxregX, DCdM, D2CdM2
     
-    real matrix    DUdx, DUdB, DUdlam, DUdBr, DUdBw, DUdBs, DUdBrho, DUdBsig, DWdBw, DWdBs, DWdBrho,
+    real matrix    DUdx, DUdB, DUdlam, DUdBr, DUdBw, DUdBs, DUdBrho, DUdBsig, DWdBw, DWdBs, DWdBrho, Dude,
                    DWdBsig, DXdH, YmPn_D2UdB2, YmPn_D2UdBr2, YmPn_D2UdBdBr, YmPn_D2Udx2, YmPnD2UdBw2, DUdlC, DUdlL1, DUdlL2
     real colvector DUdC, D2UdC2, DMdH, D2MdH2
     
     real scalar    ncx, nc2x, nlx1, nl2x1, nlx2, nl2x2, nxind
     real colvector Yn, C, L1, L2
-    real matrix    Xnr, CX, C2X, LX1, L2X1, LX2, L2X2, Xind, PXn, YXn
+    real matrix    Xnr, CX, C2X, LX1, L2X1, LX2, L2X2, Xind
     real colvector Unr, Enr, Pnr, YmPn
     
     real scalar    lsum, pni
-    real rowvector Gsum, Gnr, H1, S1, W1
-    real matrix    H1sum, H2sum, H2, Svar, S2xx, S2xy, W2xx, W2xy
+    real rowvector Gsum, Gnr, W1
+    real matrix    H1sum, H2sum, W2xx, W2xy
     
     real scalar    lC, lL1, lL2
     real colvector BcC, BcL1
@@ -681,7 +729,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     // Definitions
     i     = 1                   // Indicates first observation of active group
     rvars = rows(lsl_Rvars)     // Number of random variables
-    nRV   = rvars + 1           // Indicates next random variable to use (column of lsl_R)
+    nRV   = rvars + 1           // Indicates first random variable to use (column of lsl_R) for wage pred
     nobs  = rows(lsl_Y)         // Number of observations
     nlei  = 1 + cols(lsl_L2)    // Number of leisure terms
     ncx   = cols(lsl_CX)
@@ -692,6 +740,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     nl2x2 = cols(lsl_L2X2)
     nxind = cols(lsl_Xind)
     ncons = ncx + nc2x + nlei   // Number of variables including consumption
+    Dude  = J(nobs, lsl_draws, 0)
     
     // Number of coefficients
     b     = cols(B)                                                     // Total number
@@ -700,8 +749,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     bheck = (bsel > 0 ? 2 : 0)                                          // Number of additional Heckman selection model coefficients
     brnd  = (lsl_corr  == 1 ? rvars * (rvars + 1) / 2 : rvars)          // Number of variance and covariance terms for random coefficients
     blam  = (lsl_ufunc == "boxcox" ? 1 + nlei : 0)                      // Number of Box-Cox transformation coefficients
-    //bfix  = b - brnd - bheck - bsel - 2 * (bsel > 0)            // Number of fix preference coefficients
-    bfix  = ncons + (nlei == 2) + nlx1 + nl2x1 + nlx2 + nl2x2 + nxind   // Number of fixed preference coefficients
+    bfix  = ncons + nlx1 + nl2x1 + nlx2 + nl2x2 + (nlei == 2) + nxind   // Number of fixed preference coefficients
     
     // Maximum Likelihood Parameter
     lnf = 0             // Log-likelihood
@@ -719,7 +767,6 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     irnd  = 1 + bfix + bwage + bsel + bheck + blam
     
     Bfix  = B[|1\bfix|]                                                     // Get fixed coefficients
-    //Beta  = (lsl_ufunc == "boxcox" ? Bfix[|1\bfix - nlei - 1|]    : Bfix)   //   Separate Betas from Lambdas for Box-Cox
     Bwage = (bwage > 0 ? B[|iwage\iwage + bwage - 1|] : J(0, 0, 0))         // Wage coefficients
     Bsel  = (bsel  > 0 ? B[|isel\isel + bsel - 1|]    : J(0, 0, 0))         //   Selection coefficients
     Brho  = (bheck > 0 ? B[iheck]                     : J(0, 0, 0))         //   Heckman rho
@@ -730,7 +777,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     // Build matrix with random coefficients (mean zero), every row is a draw
     if (brnd > 0) {
         Zeta = J(rows(lsl_R), bfix, 0)
-        Zeta[.,lsl_Rvars] = cross(lsl_R', Sigm')
+        Zeta[.,lsl_Rvars] = cross(lsl_R[|1,1\.,rvars|]', Sigm')
     }
     // From now on: Beta[rows=lsl_R,cols=Bfix] = Bfix :+ Zeta
     
@@ -751,22 +798,10 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
         BcC  = lsl_boxcox(lsl_C, lC)
         BcL1 = lsl_boxcox(lsl_L1, lL1)
         BcL2 = lsl_boxcox(lsl_L2, lL2)
-        
+
         // Replace lsl_X
-        lsl_X = ((lsl_CX, BcL1, BcL2) :* BcC, lsl_LX1 :* BcL1, lsl_LX2 :* BcL2, BcL1 :* BcL2, lsl_Xind)
-    }
-    
-    //
-    // Dude share
-    //
-    
-    if (lsl_sml == 0 & lsl_fml == 0 & lsl_wagep == 0 & lsl_corr == 0) {
-        if (lsl_ufunc == "boxcox") DUdC = cross((lsl_CX, BcL1, BcL2)', Bfix[|1\ncons|]') :*
-                                          (reldif(lC, 0) >= 1e-25 ? lsl_C:^(lC-1) : (1 :/ lsl_C))
-        else                       DUdC = cross((lsl_CX, 2 :* lsl_C2X :* lsl_C, lsl_L1, lsl_L2)', Bfix[|1\ncons|]')
-        if (brnd > 0) dudes = 1 - colsum(normal(DUdC :/ sqrt(colsum((lsl_Rvars :<= ncons) :* diagonal(Sigm):^2)))) :/ nobs
-        else          dudes = colsum(DUdC :< 0) / nobs
-        st_numscalar("r(dudes)", dudes)
+        lsl_X = ((lsl_CX, BcL1, BcL2) :* BcC, lsl_LX1 :* BcL1,
+                 lsl_LX2 :* BcL2, BcL1 :* BcL2, lsl_Xind)
     }
     
     //
@@ -777,8 +812,8 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     if (lsl_fml == 1) {
         // Selection equation
         if (bsel > 0) {
-            Select = cross(lsl_SelectVars', Bsel')                               // Selection prediction
-            SelRes = lsl_Y :* ((lsl_Hwage :< .) :- Select)                        //   Selection residuals
+            Select = cross(lsl_SelectVars', Bsel')          // Selection prediction
+            SelRes = lsl_Y :* ((lsl_Hwage :< .) :- Select)  //   Selection residuals
             Lambda = normalden(Select) :/ normal(Select)    //   Heckman lambda
         } else Lambda = J(nobs, 0, 0)
         
@@ -787,8 +822,8 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
         
         if (bsel == 0) {
             Hwres = lsl_Y :* (log(lsl_Hwage) :- Hwage)                  // Residuals
-            Bsig  = sqrt(cross(Hwres, Hwres) / (lsl_groups - bwage))   // RMSE
-            for (c = 1; c <= cols(Bsig); c++) {                      // Save RMSE
+            Bsig  = sqrt(cross(Hwres, Hwres) / (lsl_groups - bwage))    // RMSE
+            for (c = 1; c <= cols(Bsig); c++) {                         // Save RMSE
                 st_numscalar("r(sigma_w" + strofreal(c) + ")", Bsig[1,c])
             }
         }
@@ -816,30 +851,40 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     
     for (n = 1; n <= lsl_groups; n++) {
         // Last observation of group n
-        c   = lsl_J[i]
-        e   = i + c - 1
-        Yn  = lsl_Y[|i\e|]
+        i = lsl_J[n,1]
+        e = lsl_J[n,2]
+        c = e - i + 1
         
-        // Fetch needed right hand side parts
-        if (lsl_wagep == 1 | lsl_fml == 1 | lsl_sml == 1) {
-            C    =  lsl_C[|i\e|]             // Get consumption from data
-            CX   = (cols(lsl_CX)   > 0 ?   lsl_CX[|i\e|]     : J(c, 0, 0))
-            C2X  = (cols(lsl_C2X)  > 0 ?  lsl_C2X[|i,1\e,.|] : J(c, 0, 0))
-            L1   = lsl_L1[|i\e|]
-            LX1  = (cols(lsl_LX1)  > 0 ?  lsl_LX1[|i,1\e,.|] : J(c, 0, 0))
-            L2X1 = (cols(lsl_L2X1) > 0 ? lsl_L2X1[|i,1\e,.|] : J(c, 0, 0))
-            L2   = (cols(lsl_L2)   > 0 ?   lsl_L2[|i\e|]     : J(c, 0, 0))
-            LX2  = (cols(lsl_LX2)  > 0 ?  lsl_LX2[|i,1\e,.|] : J(c, 0, 0))
-            L2X2 = (cols(lsl_L2X2) > 0 ? lsl_L2X2[|i,1\e,.|] : J(c, 0, 0))
-            Xind = (cols(lsl_Xind) > 0 ? lsl_Xind[|i,1\e,.|] : J(c, 0, 0))
-            Wn   = Hwage[|i,1\e,.|]
-        } else Xnr = lsl_X[|i,1\e,.|]
+        // Fetch relevant variables
+        Yn   = lsl_Y[|i\e|]
+        Xnr  = lsl_X[|i,1\e,.|]
+        C    = lsl_C[|i\e|]
+        CX   = (cols(lsl_CX)   > 0 ?   lsl_CX[|i,1\e,.|] : J(c, 0, 0))
+        C2X  = (cols(lsl_C2X)  > 0 ?  lsl_C2X[|i,1\e,.|] : J(c, 0, 0))
+        L1   = lsl_L1[|i\e|]
+        LX1  = (cols(lsl_LX1)  > 0 ?  lsl_LX1[|i,1\e,.|] : J(c, 0, 0))
+        L2X1 = (cols(lsl_L2X1) > 0 ? lsl_L2X1[|i,1\e,.|] : J(c, 0, 0))
+        L2   = (cols(lsl_L2)   > 0 ?   lsl_L2[|i\e|]     : J(c, 0, 0))
+        LX2  = (cols(lsl_LX2)  > 0 ?  lsl_LX2[|i,1\e,.|] : J(c, 0, 0))
+        L2X2 = (cols(lsl_L2X2) > 0 ? lsl_L2X2[|i,1\e,.|] : J(c, 0, 0))
+        Xind = (cols(lsl_Xind) > 0 ? lsl_Xind[|i,1\e,.|] : J(c, 0, 0))
+        Wn   = Hwage[|i,1\e,.|]
+        
+        // Transform consumption and leisure
+        if (lsl_ufunc == "boxcox") {
+            BcC  = lsl_boxcox(C, lC)
+            BcL1 = lsl_boxcox(L1, lL1)
+            BcL2 = lsl_boxcox(L2, lL2)
+        }
         
         // Sum over draws
         lsum  = 0
         Gsum  = J(1, b, 0)
         H1sum = J(1, b, 0)
         H2sum = J(b, b, 0)
+        
+        // Check if wage prediction needed
+        wagep = (lsl_wagep == 1 & sum(lsl_Wpred[|i,1\e,.|]) > 0)
 
         // Run by random draw
         for (r = 1; r <= lsl_draws; r++) {
@@ -851,15 +896,15 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
             
 
             /* Integrate out wage prediction error */
-
-            if (lsl_wagep == 1 | lsl_fml == 1 | lsl_sml == 1) {
+            
+            if (wagep == 1 | lsl_fml == 1 | lsl_sml == 1) {
                 //
                 // Calculate monthly earnings
                 //
 
                 // Adjust wages with random draws if prediction enabled
-                if (lsl_wagep == 1) Wn = Wn :* exp(cross(Bsig' :* lsl_R[|iRV,nRV\iRV,.|]', lsl_Wpred[|i,1\e,.|]'))'
-
+                if (lsl_wagep == 1) Wn = Hwage[|i,1\e,.|] :* exp(Bsig :* lsl_R[|iRV,nRV\iRV,.|] :* lsl_Wpred[|i,1\e,.|])
+                
                 // Calculate monthly earnings
                 Mwage = (lsl_Days[|i\e|] :/ 12 :/ 7) :* lsl_Hours[|i,1\e,.|] :* Wn
 
@@ -877,9 +922,9 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                                                                       lsl_TaxregIas2[|i,1\e,.|] :* Mwage[.,2]:^2)
                 else           TaxregX2 = J(c, 0, 0)
                 TaxregX = (TaxregX1, TaxregX2, lsl_TaxregVars[|i,1\e,.|], J(c, 1, 1))
-
+                
                 // Predict disposable income (can't be negative!)
-                C = rowmax((cross(TaxregX', lsl_TaxregB'), J(c, 1, 1)))
+                C = rowmax((cross(TaxregX', lsl_TaxregB') :/ lsl_boxcc, J(c, 1, 1)))
                 
                 // Build matrix with independent variables
                 if      (lsl_ufunc == "tran") Xnr = (log(C)  :* (CX,  log(C)  :* C2X,   log(L1),   log(L2)),
@@ -888,6 +933,10 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                 else if (lsl_ufunc == "quad") Xnr = (C  :* (CX,  C  :* C2X,   L1,   L2),
                                                      L1 :* (LX1, L1 :* L2X1),
                                                      L2 :* (LX2, L2 :* L2X2), L1 :* L2, Xind)
+                else if (lsl_ufunc == "boxcox") {
+                    BcC = lsl_boxcox(C, lC)
+                    Xnr = ((CX, BcL1, BcL2) :* BcC, LX1 :* BcL1, LX2 :* BcL2, BcL1 :* BcL2, Xind)
+                }
             }
             
 
@@ -901,10 +950,19 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
             // Simplify
             pni  = cross(Yn, Pnr)   // Probability that choice is chosen
             YmPn = Yn :- Pnr        // Choice minus probabilities
+            /*
             PXn  = cross(Pnr, Xnr)  // Right hand side cross by probs
             YXn  = cross(Yn, Xnr)   // Right hand side cross by choice
-
-
+            */
+            
+            if (lsl_sml == 0 & lsl_fml == 0 & todo == 0) {
+                if    (lsl_ufunc == "boxcox") Dude[|i,r\e,r|] = cross((CX, lsl_boxcox(L1, lL1), lsl_boxcox(L2, lL2))', Bfix[|1\ncons|]') :*
+                                                                (reldif(lC, 0) >= 1e-25 ? C:^(lC - 1) : (1 :/ C))
+                else if (lsl_ufunc == "quad") Dude[|i,r\e,r|] = cross((CX, 2 :* C2X :* C, L1, L2)', Bfix[|1\ncons|]')
+                else if (lsl_ufunc == "tran") Dude[|i,r\e,r|] = cross((CX, 2 :* C2X :* log(C), log(L1), log(L2))', Bfix[|1\ncons|]') :/ C
+            }
+            
+            
             /* Add to sum over draws */
 
             // Add to likelihood
@@ -918,50 +976,46 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                 // Box-Cox transformation coefficients
                 if (lsl_ufunc == "boxcox") {
                     // Build interaction terms
-                    BcCx  = (lsl_CX[|i,1\e,.|], BcL1[|i\e|], (nlei == 2 ? BcL2[|i\e|] : J(c, 0, 0)), J(c, bfix - ncons, 0))
-                    BcL1x = (J(c, ncx, 0), BcC[|i\e|], J(c, (nlei == 2), 0), lsl_LX1[|i,1\e,.|], J(c, nlx2, 0), (nlei == 2 ? BcL2[|i\e|] : J(c, 0, 0)), J(c, nxind, 0))
-                    BcL2x = (nlei == 2 ? (J(c, ncx + 1, 0), BcC[|i\e|], J(c, nlx1, 0), lsl_LX2[|i,1\e,.|], BcL1[|i\e|], J(c, nxind, 0)) : J(c, 0, 0))
+                    BcCx  = (CX, BcL1, (nlei == 2 ? BcL2 : J(c, 0, 0)), J(c, bfix - ncons, 0))
+                    BcL1x = (J(c, ncx, 0), BcC, J(c, (nlei == 2), 0), LX1, J(c, nlx2, 0), (nlei == 2 ? BcL2 : J(c, 0, 0)), J(c, nxind, 0))
+                    BcL2x = (nlei == 2 ? (J(c, ncx + 1, 0), BcC, J(c, nlx1, 0), LX2, BcL1, J(c, nxind, 0)) : J(c, 0, 0))
                     
                     // Calculate gradients
-                    DUdlC  = lsl_boxcox_g(lsl_C[|i\e|],  lC)  :* cross(BcCx', Beta')
-                    DUdlL1 = lsl_boxcox_g(lsl_L1[|i\e|], lL1) :* cross(BcL1x', Beta')
-                    DUdlL2 = (nlei == 2 ? lsl_boxcox_g(lsl_L2[|i\e|], lL2) :* cross(BcL2x', Beta') : J(c, 0, 0))
+                    DUdlC  = lsl_boxcox_g(C,  lC)  :* cross(BcCx', Beta')
+                    DUdlL1 = lsl_boxcox_g(L1, lL1) :* cross(BcL1x', Beta')
+                    DUdlL2 = (nlei == 2 ? lsl_boxcox_g(L2, lL2) :* cross(BcL2x', Beta') : J(c, 0, 0))
                     DUdlam = (DUdlC, DUdlL1, DUdlL2)
                 } else DUdlam = J(c, 0, 0)
                 
                 // Random components
                 if (brnd > 0) {
                     DUdBr = (lsl_corr == 1 ? cross(DUdB[.,vech(J(1, rvars, lsl_Rvars))]',
-                                                   diag(vech(J(rvars, 1, lsl_R[iRV,.]))))
-                                           : DUdB[.,lsl_Rvars] :* lsl_R[iRV,.])
+                                                   diag(vech(J(rvars, 1, lsl_R[|iRV,1\iRV,rvars|]))))
+                                           : DUdB[.,lsl_Rvars] :* lsl_R[|iRV,1\iRV,rvars|])
                 } else DUdBr = J(c, 0, 0)
                 
-                // Heckman?
-                DUdBw   = J(c, 0, 0)
-                DUdBs   = J(c, 0, 0)
-                DUdBrho = J(c, 0, 0)
-                DUdBsig = J(c, 0, 0)
+                // Full Maximum Likelihood estimation?
+                real matrix DUdwage
                 if (lsl_fml == 1) {
                     if      (lsl_ufunc == "quad") DUdC = cross((CX, 2 :* C2X :* C, L1, L2)', Beta[|1\ncons|]')
                     else if (lsl_ufunc == "tran") DUdC = cross(((CX, 2 :* C2X :* log(C), L1, L2) :/ C)', Beta[|1\ncons|]')
                     DCdM = cross((J(c, 1, 1), 2 :* Mwage, lsl_TaxregIas1[|i,1\e,.|], 2 :* Mwage :* lsl_TaxregIas1[|i,1\e,.|])', lsl_TaxregB[|1\2 + 2 * cols(lsl_TaxregIas1)|]')
                     DMdH = (lsl_Days[|i,1\e,1|] :/ 12 :/ 7) :* lsl_Hours[|i,1\e,.|]
                     if (bsel > 0) {
-                        DWdBw   = Wn :* lsl_HeckmVars[|i,1\e,.|]
+                        DWdBw   =   Wn :* lsl_HeckmVars[|i,1\e,.|]
                         DWdBs   = - Wn :* Bsig :* Brho :* normalden(Select[|i,1\e,.|]) :* lsl_SelectVars[|i,1\e,.|] :*
-                                   (normal(Select[|i,1\e,.|]) :* Select[|i,1\e,.|] :+ normalden(Select[|i,1\e,.|])) :/ normal(Select[|i,1\e,.|]):^2
-                        DWdBrho = Wn :*  Bsig :* Lambda[|i,1\e,.|]
-                        DWdBsig = Wn :* (Brho :* Lambda[|i,1\e,.|] :+ Bsig)
-                        Gnr     = (Gnr, DUdC :* DCdM :* DMdH :* (DWdBw, DWdBs, DWdBrho, DWdBsig))
+                                    (normal(Select[|i,1\e,.|]) :* Select[|i,1\e,.|] :+ normalden(Select[|i,1\e,.|])) :/ normal(Select[|i,1\e,.|]):^2
+                        DWdBrho =   Wn :*  Bsig :* Lambda[|i,1\e,.|]
+                        DWdBsig =   Wn :* (Brho :* Lambda[|i,1\e,.|] :+ Bsig)
                     } else {
-                        DWdBw = Wn :* (lsl_HeckmVars[|i,1\e,.|] :- colsum(lsl_HeckmVars :* Hwres) / (lsl_groups - bwage))
-                        DUdBw = DUdC :* DCdM :* DMdH :* DWdBw
-                        Gnr   = (Gnr, DUdBw)
+                        DWdBw   =   Wn :* (lsl_HeckmVars[|i,1\e,.|] :- colsum(lsl_HeckmVars :* Hwres) / (lsl_groups - bwage))
+                        DWdBs   = DWdBrho = DWdBsig = J(c, 0, 0)
                     }
-                }
+                    DUdwage = DUdC :* DCdM :* DMdH :* (DWdBw, DWdBs, DWdBrho, DWdBsig)
+                } else DUdwage = J(c, 0, 0)
                 
                 // Total
-                DUdx = (DUdB, DUdBw, DUdBs, DUdBrho, DUdBsig, DUdlam, DUdBr)
+                DUdx = (DUdB, DUdwage, DUdlam, DUdBr)
                 Gsum = Gsum + pni :* cross(YmPn, DUdx)
             }
 
@@ -978,81 +1032,93 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                 
                 // Box-Cox transformation parameters
                 if (lsl_ufunc == "boxcox") {
-                    YmPn_D2UdB2[|ilC,1\ilC,ncons|] = cross(YmPn :* lsl_boxcox_g(lsl_C[|i\e|], lC), (lsl_CX[|i,1\e,.|], BcL1[|i\e|], (nlei == 2 ? BcL2[|i\e|] : J(c, 0, 0))))
-                    YmPn_D2UdB2[ilC,ilC] = cross(YmPn :* lsl_boxcox_h(lsl_C[|i\e|], lC), cross((lsl_CX[|i,1\e,.|], BcL1[|i\e|], (nlei == 2 ? BcL2[|i\e|] : J(c, 0, 0)))', Beta[|1\ncons|]'))
-                    YmPn_D2UdB2[ilL1,ncx + 1] = cross(YmPn :* lsl_boxcox_g(lsl_L1[|i\e|], lL1), BcC[|i\e|])
-                    YmPn_D2UdB2[|ilL1,ncons + 1\ilL1,ncons + nlx1|] = cross(YmPn :* lsl_boxcox_g(lsl_L1[|i\e|], lL1), lsl_LX1[|i,1\e,.|])
-                    YmPn_D2UdB2[ilL1,ilC]  = cross(YmPn :* lsl_boxcox_g(lsl_L1[|i\e|], lL1), Beta[ncons - nlei + 1] :* lsl_boxcox_g(lsl_C[|i\e|], lC))
-                    YmPn_D2UdB2[ilL1,ilL1] = cross(YmPn :* lsl_boxcox_h(lsl_L1[|i\e|], lL1), cross((BcC[|i\e|], lsl_LX1[|i,1\e,.|], (nlei == 2 ? BcL2[|i\e|] : J(c, 0, 0)))',
+                    YmPn_D2UdB2[|ilC,1\ilC,ncons|] = cross(YmPn :* lsl_boxcox_g(C, lC), (CX, BcL1, (nlei == 2 ? BcL2 : J(c, 0, 0))))
+                    YmPn_D2UdB2[ilC,ilC] = cross(YmPn :* lsl_boxcox_h(C, lC), cross((CX, BcL1, (nlei == 2 ? BcL2 : J(c, 0, 0)))', Beta[|1\ncons|]'))
+                    YmPn_D2UdB2[ilL1,ncx + 1] = cross(YmPn :* lsl_boxcox_g(L1, lL1), BcC)
+                    YmPn_D2UdB2[|ilL1,ncons + 1\ilL1,ncons + nlx1|] = cross(YmPn :* lsl_boxcox_g(L1, lL1), LX1)
+                    YmPn_D2UdB2[ilL1,ilC]  = cross(YmPn :* lsl_boxcox_g(L1, lL1), Beta[ncons - nlei + 1] :* lsl_boxcox_g(C, lC))
+                    YmPn_D2UdB2[ilL1,ilL1] = cross(YmPn :* lsl_boxcox_h(L1, lL1), cross((BcC, LX1, (nlei == 2 ? BcL2 : J(c, 0, 0)))',
                                                                                                    (Beta[ncx + 1], Beta[|ncons + 1\ncons + nlx1|], (nlei == 2 ? Beta[ncons + nlx1 + nlx2 + 1] : J(1, 0, 0)))'))
                     if (nlei == 2) {
-                        YmPn_D2UdB2[ilL1,ncons + nlx1 + nlx2 + 1] = cross(YmPn :* lsl_boxcox_g(lsl_L1[|i\e|], lL1), BcL2[|i\e|])
-                        YmPn_D2UdB2[ilL2,ncons + nlx1 + nlx2 + 1] = cross(YmPn :* lsl_boxcox_g(lsl_L2[|i\e|], lL2), BcL1[|i\e|])
-                        YmPn_D2UdB2[ilL2,ncons] = cross(YmPn :* lsl_boxcox_g(lsl_L2[|i\e|], lL2), BcC[|i\e|])
-                        YmPn_D2UdB2[|ilL2,ncons + nlx1 + 1\ilL2,ncons + nlx1 + nlx2|] = cross(YmPn :* lsl_boxcox_g(lsl_L2[|i\e|], lL2), lsl_LX2[|i,1\e,.|])
-                        YmPn_D2UdB2[ilL2,ilC]  = cross(YmPn :* lsl_boxcox_g(lsl_L2[|i\e|], lL2), Beta[ncons] :* lsl_boxcox_g(lsl_C[|i\e|], lC))
-                        YmPn_D2UdB2[ilL2,ilL1] = cross(YmPn :* lsl_boxcox_g(lsl_L2[|i\e|], lL2), Beta[ncons + nlx1 + nlx2 + 1] :* lsl_boxcox_g(lsl_L1[|i\e|], lL1))
-                        YmPn_D2UdB2[ilL2,ilL2] = cross(YmPn :* lsl_boxcox_h(lsl_L2[|i\e|], lL2), cross((BcC[|i\e|], lsl_LX2[|i,1\e,.|], BcL1[|i\e|])',
-                                                                                                       (Beta[ncons], Beta[|ncons + nlx1 + 1\ncons + nlx1 + nlx2 + 1|])'))
+                        YmPn_D2UdB2[ilL1,ncons + nlx1 + nlx2 + 1] = cross(YmPn :* lsl_boxcox_g(L1, lL1), BcL2)
+                        YmPn_D2UdB2[ilL2,ncons + nlx1 + nlx2 + 1] = cross(YmPn :* lsl_boxcox_g(L2, lL2), BcL1)
+                        YmPn_D2UdB2[ilL2,ncons] = cross(YmPn :* lsl_boxcox_g(L2, lL2), BcC)
+                        YmPn_D2UdB2[|ilL2,ncons + nlx1 + 1\ilL2,ncons + nlx1 + nlx2|] = cross(YmPn :* lsl_boxcox_g(L2, lL2), LX2)
+                        YmPn_D2UdB2[ilL2,ilC]  = cross(YmPn :* lsl_boxcox_g(L2, lL2), Beta[ncons] :* lsl_boxcox_g(C, lC))
+                        YmPn_D2UdB2[ilL2,ilL1] = cross(YmPn :* lsl_boxcox_g(L2, lL2), Beta[ncons + nlx1 + nlx2 + 1] :* lsl_boxcox_g(L1, lL1))
+                        YmPn_D2UdB2[ilL2,ilL2] = cross(YmPn :* lsl_boxcox_h(L2, lL2), cross((BcC, LX2, BcL1)', (Beta[ncons], Beta[|ncons + nlx1 + 1\ncons + nlx1 + nlx2 + 1|])'))
                     }
                     
                     // Random coefficients?
                     if (brnd > 0) {
                         if (lsl_corr == 1) {
-                            YmPn_D2UdBdBr[.,ilC]  = cross(cross(YmPn :* lsl_boxcox_g(lsl_C[|i\e|], lC), BcCx)[.,vech(J(1, rvars, lsl_Rvars))]', diag(vech(J(rvars, 1, lsl_R[iRV,.]))))'
-                            YmPn_D2UdBdBr[.,ilL1] = cross(cross(YmPn :* lsl_boxcox_g(lsl_L1[|i\e|], lL1), BcL1x)[.,vech(J(1, rvars, lsl_Rvars))]', diag(vech(J(rvars, 1, lsl_R[iRV,.]))))'
-                            if (nlei == 2) YmPn_D2UdBdBr[.,ilL2] = cross(cross(YmPn :* lsl_boxcox_g(lsl_L2[|i\e|], lL2), BcL2x)[.,vech(J(1, rvars, lsl_Rvars))]', diag(vech(J(rvars, 1, lsl_R[iRV,.]))))'
+                            YmPn_D2UdBdBr[.,ilC]  = cross(cross(YmPn :* lsl_boxcox_g(C, lC), BcCx)[.,vech(J(1, rvars, lsl_Rvars))]', diag(vech(J(rvars, 1, lsl_R[|iRV,1\iRV,rvars|]))))'
+                            YmPn_D2UdBdBr[.,ilL1] = cross(cross(YmPn :* lsl_boxcox_g(L1, lL1), BcL1x)[.,vech(J(1, rvars, lsl_Rvars))]', diag(vech(J(rvars, 1, lsl_R[|iRV,1\iRV,rvars|]))))'
+                            if (nlei == 2) YmPn_D2UdBdBr[.,ilL2] = cross(cross(YmPn :* lsl_boxcox_g(L2, lL2), BcL2x)[.,vech(J(1, rvars, lsl_Rvars))]', diag(vech(J(rvars, 1, lsl_R[|iRV,1\iRV,rvars|]))))'
                         } else {
-                            YmPn_D2UdBdBr[.,ilC]  = (cross(YmPn :* lsl_boxcox_g(lsl_C[|i\e|], lC), BcCx)[.,lsl_Rvars] :* lsl_R[iRV,.])'
-                            YmPn_D2UdBdBr[.,ilL1] = (cross(YmPn :* lsl_boxcox_g(lsl_L1[|i\e|], lL1), BcL1x)[.,lsl_Rvars] :* lsl_R[iRV,.])'
-                            if (nlei == 2) YmPn_D2UdBdBr[.,ilL2] = (cross(YmPn :* lsl_boxcox_g(lsl_L2[|i\e|], lL2), BcL2x)[.,lsl_Rvars] :* lsl_R[iRV,.])'
+                            YmPn_D2UdBdBr[.,ilC]  = (cross(YmPn :* lsl_boxcox_g(C, lC), BcCx)[.,lsl_Rvars] :* lsl_R[|iRV,1\iRV,rvars|])'
+                            YmPn_D2UdBdBr[.,ilL1] = (cross(YmPn :* lsl_boxcox_g(L1, lL1), BcL1x)[.,lsl_Rvars] :* lsl_R[|iRV,1\iRV,rvars|])'
+                            if (nlei == 2) YmPn_D2UdBdBr[.,ilL2] = (cross(YmPn :* lsl_boxcox_g(L2, lL2), BcL2x)[.,lsl_Rvars] :* lsl_R[|iRV,1\iRV,rvars|])'
                         }
                     }
                 }
-
-                /*
-                // Heckman
-                //W1   = J(1, 0, 0)
-                W2xy = J(0, bfix, 0)
-                W2xx = J(0, 0, 0)
-                if (lsl_fml == 1) {
-                    DXdH   = (CX, C2X :* 2 :* C, L1, J(c, cols(Xnr) - (cols(CX) + cols(C2X) + 2 + nlei), 0)) :*
-                             ((J(c, 1, 1), 2 :* Mwage, lsl_TaxregIas1[|i,1\e,.|], 2 :* Mwage :* lsl_TaxregIas1[|i,1\e,.|]) * lsl_TaxregB[|1,1\1,2 + 2 * cols(lsl_TaxregIas1)|]') :*
-                             (lsl_Days[|i,1\e,1|] :/ 12 :/ 7) :* lsl_Hours[|i,1\e,.|]
-                    D2UdC2 = 2 * Beta[|1,cols(CX) + 2\1,cols(CX) + cols(C2X) + 2|]
-                    D2CdM2 = cross((J(c, 1, 2), 2 :* lsl_TaxregIas1[|i,1\e,.|])', (lsl_TaxregB[1,2], lsl_TaxregB[|1,2 + cols(lsl_TaxregIas1) + 1\1,2 + 2 * cols(lsl_TaxregIas1)|])')
-                    D2MdH2 = 0
-
-                    YmPnD2UdBw2 = cross(YmPn :* DWdBw :* (DMdH:^2 :* (D2UdC2 :* DCdM:^2 :+ DUdC :* D2CdM2) + DUdC :* DCdM :* D2MdH2), DWdBw)
-                    for (hv = 1; hv <= bwage; hv++) {
-                        YmPnD2UdBw2[hv,.] = YmPnD2UdBw2[hv,.] + cross(YmPn :* DUdC :* DCdM :* DMdH, DWdBw :* (lsl_HeckmVars[|i,hv\e,hv|] :- colsum(lsl_HeckmVars[.,hv] :* Hwres) / (lsl_groups - bwage)) :+
-                                                                                                    cross(Wn', cross(lsl_Y :* lsl_HeckmVars[.,hv], lsl_HeckmVars) :/ (lsl_groups - bwage)))
-                    }
-
-                    //W1   =   pni :* (cross(Yn, DUdBw) - cross(Pnr, DUdBw))
-                    W2xy =   pni :* (cross(cross(Yn, DUdBw) - cross(Pnr, DUdBw), cross(YmPn, Xnr)) -
-                                     cross(DUdBw :- cross(Pnr, DUdBw), Pnr :* Xnr) +
-                                     cross(YmPn :* DXdH, *//*Wn :* lsl_HeckmVars[|i,1\e,.|]*//*DWdBw)')
-                    W2xx =   pni :* (cross(cross(Yn, DUdBw) - cross(Pnr, DUdBw), cross(YmPn, DUdBw)) -
-                                     cross(DUdBw :- cross(Pnr, DUdBw), Pnr :* DUdBw) + YmPnD2UdBw2)
-
-                    H2sum = H2sum + (H2, W2xy' \ W2xy, W2xx)
-                }*/
                 
                 // Partial second derivatives
-                YmPn_D2Udx2 = makesymmetric((YmPn_D2UdB2, YmPn_D2UdBdBr' \
-                                             YmPn_D2UdBdBr, YmPn_D2UdBr2))
+                YmPn_D2Udx2 = makesymmetric((YmPn_D2UdB2  , YmPn_D2UdBdBr' \
+                                             YmPn_D2UdBdBr, YmPn_D2UdBr2   ))
+                
+                // Full Maximum Likelihood estimation?
+                real matrix YmPn_D2UdBdwage, YmPn_D2UdBwage, YmPn_D2Udwage2, YmPn_D2UdBwdBr, YmPn_D2UdBdBw, YmPn_D2UdBw2, YmPn_D2UdBwdBs, YmPn_D2UdBs2
+                YmPn_D2UdBdwage = J(bwage + bsel + 2 * (bsel > 0), bfix, 0)
+                YmPn_D2Udwage2  = J(bwage + bsel + 2 * (bsel > 0), bwage + bsel + 2 * (bsel > 0), 0)
+                
+                if (lsl_fml == 1) {
+                    if (lsl_ufunc == "quad") YmPn_D2UdBdwage = cross(YmPn :* DCdM :* DMdH :* (DWdBw, DWdBs, DWdBrho, DWdBsig), (CX, 2 :* C2X :* C, L1, J(c, cols(Xnr) - ncons, 0)))
+                    if (lsl_ufunc == "quad") D2UdC2 = 2 :* cross(C2X', Beta[|ncx + 1\ncx + nc2x|]')
+                    D2CdM2 = cross((J(c, 1, 2), 2 :* lsl_TaxregIas1[|i,1\e,.|])', (lsl_TaxregB[2], lsl_TaxregB[|2 + cols(lsl_TaxregIas1) + 1\2 + 2 * cols(lsl_TaxregIas1)|])')
+                    D2MdH2 = 0
+                    // d2U / dBw2
+                    YmPn_D2Udwage2[|1,1\bwage,bwage|] = cross(YmPn :* DWdBw :* (DMdH:^2 :* (D2UdC2 :* DCdM:^2 :+ DUdC :* D2CdM2) + DUdC :* DCdM :* D2MdH2), DWdBw) :+
+                                                        cross(YmPn :* DWdBw :* DUdC :* DCdM :* DMdH, lsl_HeckmVars[|i,1\e,.|])
+                    // d2U / dBs2
+                    YmPn_D2Udwage2[|bwage+1,bwage+1\bwage+bsel,bwage+bsel|] = cross(YmPn :* DWdBs :* (DMdH:^2 :* (D2UdC2 :* DCdM:^2 :+ DUdC :* D2CdM2) + DUdC :* DCdM :* D2MdH2), DWdBs) :+
+                                                                              cross(YmPn :* DUdC :* DCdM :* DMdH :* Brho :* Bsig :* normalden(Select[|i,1\e,.|]) :* lsl_SelectVars[|i,1\e,.|],
+                                                                                    - ((DWdBs :- Wn :* Select[|i,1\e,.|] :* lsl_SelectVars[|i,1\e,.|]) :* (normal(Select[|i,1\e,.|]) :* Select[|i,1\e,.|] :+ normalden(Select[|i,1\e,.|])) :/ normal(Select[|i,1\e,.|]):^2
+                                                                                       :+ Wn :* lsl_SelectVars[|i,1\e,.|] :* (normal(Select[|i,1\e,.|]):^2 :- 2 :* normalden(Select[|i,1\e,.|]):^2 :- 2 :* normal(Select[|i,1\e,.|]) :* normalden(Select[|i,1\e,.|]) :* Select[|i,1\e,.|]) :/ normal(Select[|i,1\e,.|]):^3))
+                    // d2U / dBrho2
+                    YmPn_D2Udwage2[bwage+bsel+1,bwage+bsel+1] = cross(YmPn :* DWdBrho :* (DMdH:^2 :* (D2UdC2 :* DCdM:^2 :+ DUdC :* D2CdM2) + DUdC :* DCdM :* D2MdH2), DWdBrho) :+
+                                                                cross(YmPn :* DWdBrho :* DUdC :* DCdM :* DMdH, Bsig :* Lambda[|i,1\e,.|])
+                    // d2U / dBsig2
+                    YmPn_D2Udwage2[bwage+bsel+2,bwage+bsel+2] = cross(YmPn :* DWdBsig :* (DMdH:^2 :* (D2UdC2 :* DCdM:^2 :+ DUdC :* D2CdM2) + DUdC :* DCdM :* D2MdH2), DWdBsig) :+
+                                                                cross(YmPn :* DUdC :* DCdM :* DMdH, DWdBsig :* (Brho :* Lambda[|i,1\e,.|] :+ Bsig) :+ Wn)
+                    // d2U / dBrho dBsig
+                    YmPn_D2Udwage2[bwage+bsel+2,bwage+bsel+1] = cross(YmPn :* DWdBrho :* (DMdH:^2 :* (D2UdC2 :* DCdM:^2 :+ DUdC :* D2CdM2) + DUdC :* DCdM :* D2MdH2), DWdBsig) :+
+                                                                cross(YmPn :* DUdC :* DCdM :* DMdH, DWdBsig :* Bsig :* Lambda[|i,1\e,.|] :+ Wn :* Lambda[|i,1\e,.|])
+                    // d2U / dBrho dBw
+                    YmPn_D2Udwage2[|bwage+bsel+1,1\bwage+bsel+1,bwage|] = cross(YmPn :* DWdBrho :* (DMdH:^2 :* (D2UdC2 :* DCdM:^2 :+ DUdC :* D2CdM2) + DUdC :* DCdM :* D2MdH2), DWdBw) :+
+                                                                          cross(YmPn :* DUdC :* DCdM :* DMdH, DWdBrho :* lsl_HeckmVars[|i,1\e,.|])
+                    // d2U / dBsig dBw
+                    YmPn_D2Udwage2[|bwage+bsel+2,1\bwage+bsel+2,bwage|] = cross(YmPn :* DWdBsig :* (DMdH:^2 :* (D2UdC2 :* DCdM:^2 :+ DUdC :* D2CdM2) + DUdC :* DCdM :* D2MdH2), DWdBw) :+
+                                                                          cross(YmPn :* DUdC :* DCdM :* DMdH, DWdBsig :* lsl_HeckmVars[|i,1\e,.|])
+                    // d2U / dBs dBw
+                    YmPn_D2Udwage2[|bwage+1,1\bwage+bsel,bwage|] = cross(YmPn :* DWdBs :* (DMdH:^2 :* (D2UdC2 :* DCdM:^2 :+ DUdC :* D2CdM2) + DUdC :* DCdM :* D2MdH2), DWdBw) :+
+                                                                   cross(YmPn :* DWdBs :* DUdC :* DCdM :* DMdH, lsl_HeckmVars[|i,1\e,.|])
+                    // d2U / dBs dBrho
+                    YmPn_D2Udwage2[|bwage+bsel+1,bwage+1\bwage+bsel+1,bwage+bsel|] = cross(YmPn :* DWdBrho :* (DMdH:^2 :* (D2UdC2 :* DCdM:^2 :+ DUdC :* D2CdM2) + DUdC :* DCdM :* D2MdH2), DWdBs) :+
+                                                                                     cross(YmPn :* DUdC :* DCdM :* DMdH, DWdBs :* (1 :/ Brho :+ Bsig :* Lambda[|i,1\e,.|]))
+                    // d2U / dBs dBsig
+                    YmPn_D2Udwage2[|bwage+bsel+2,bwage+1\bwage+bsel+2,bwage+bsel|] = cross(YmPn :* DWdBsig :* (DMdH:^2 :* (D2UdC2 :* DCdM:^2 :+ DUdC :* D2CdM2) + DUdC :* DCdM :* D2MdH2), DWdBs) :+
+                                                                                     cross(YmPn :* DUdC :* DCdM :* DMdH, DWdBs :* (1 :/ Bsig :+ Brho :* Lambda[|i,1\e,.|] :+ Bsig))
+                    
+                    // Partial second derivatives
+                    YmPn_D2Udx2 = makesymmetric((YmPn_D2UdB2    , YmPn_D2UdBdwage' \
+                                                 YmPn_D2UdBdwage, YmPn_D2Udwage2  ))
+                }
                 
                 // Total second derivatives
                 H1sum = H1sum :+ pni :* (cross(Yn, DUdx) :- cross(Pnr, DUdx))
                 H2sum = H2sum :+ pni :* (cross(cross(Yn, DUdx) :- cross(Pnr, DUdx), cross(YmPn, DUdx)) :-
                                          cross(Pnr :* DUdx, DUdx :- cross(Pnr, DUdx)) :+ YmPn_D2Udx2)
-
-                // Total
-                /*
-                H1sum = H1sum + (H1, S1, W1)
-                if (brnd == 0 & lsl_fml == 0) H2sum = H2sum + H2
-                */
             }
 
         }
@@ -1064,28 +1130,428 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
         lnf = lnf + lsl_Weight[i] * log(lsum / lsl_draws)
         if (todo >= 1) G = G + lsl_Weight[i] * (lsum > 1e-25 ? Gsum / lsum : J(1, b, 0))
         if (todo == 2) H = H + lsl_Weight[i] * (lsum > 1e-25 ? H2sum / lsum - cross(Gsum, H1sum) / lsum^2: J(b, b, 0))
-
-        // Next household
-        i = i + c
     }
     
     // Add likelihood of wage equation?
     if (lsl_sml == 1) lnf = lnf + cross(Hwobs, log(normalden(Hwres :/ Bsig))) - rowsum(log(Bsig))
+    
+    // Calculate dude share
+    if (lsl_sml == 0 & lsl_fml == 0 & todo == 0) st_numscalar("lsl_dudes", sum(Dude :< 0) / (nobs * lsl_draws))
 }
 
+
+/**
+ * Returns the transformed variable x^(l).
+ * 
+ * @param  real matrix Var Variable x
+ * @param  real scalar lam Power parameter l
+ * @return real matrix Transformed variable
+ */
 real matrix lsl_boxcox(real matrix Var, real scalar lam) {
     return (reldif(lam, 0) >= 1e-25 ? (Var:^lam :- 1) :/ lam : log(Var))
 }
 
+
+/**
+ * Returns the first derivative of x^(l) with respect to l, i.e., dx^(l)/dl.
+ * 
+ * @param  real matrix Var Variable x
+ * @param  real scalar lam Power parameter l
+ * @return real matrix First derivative
+ */
 real matrix lsl_boxcox_g(real matrix Var, real scalar lam) {
     return (reldif(lam, 0) >= 1e-25 ? (Var:^lam :* (lam :* log(Var) :- 1) :+ 1) :/ (lam)^2 : 0.5 :* log(Var):^2)
 }
 
+
+/**
+ * Returns the second derivative of x^(l) with respect to l, i.e., d2x^(l)/dl2.
+ * 
+ * @param  real matrix Var Variable x
+ * @param  real scalar lam Power parameter l
+ * @return real matrix Second derivative
+ */
 real matrix lsl_boxcox_h(real matrix Var, real scalar lam) {
     return (reldif(lam, 0) >= 1e-25 ? (Var:^lam :* (lam:^2 :* log(Var):^2 :- 2 :* lam :* log(Var) :+ 2) :- 2) :/ (lam)^3 : (1/3) :* log(Var):^3)
 }
 
+
+/**
+ * Predicts systematic utilities or choice probabilities.
+ * 
+ * @param string rowvector newvar Name(s) of the new variable(s)
+ * @param string scalar touse Sample selection variable
+ * @param string rowvector opt Prediction options (xb and/or pc1)
+ */
+void lslogit_p(string rowvector newvar, string scalar touse, string rowvector opt) {
+    //external real rowvector lsl_B
+    external real rowvector lsl_Bfix
+    external real matrix    lsl_Brnd
+    external real scalar    lsl_bfix
+    external real scalar    lsl_boxcc
+    external real scalar    lsl_lC, lsl_lL1, lsl_lL2
+    
+    external real matrix    lsl_X               // Right hand side variables
+    external real scalar    lsl_groups          // Number of groups
+    external real scalar    lsl_draws           // Number of random draws
+    external real colvector lsl_Y               // Left hand side variable
+    external real matrix    lsl_J               // Panel setup information
+    external real matrix    lsl_R               //   Halton sequences    
+    external real colvector lsl_Rvars           // Random coefficients
+    external real scalar    lsl_rvars           // Number of random coefficients
+    external real scalar    lsl_corr            //   Enable correlation?
+    external string scalar  lsl_ufunc           // Functional form
+    external real scalar    lsl_wagep           // Wage Prediction Error?
+    external real matrix    lsl_Wpred           //   Prediction dummies
+    external real colvector lsl_Days            //   Number of days per tax year
+    external real matrix    lsl_Hwage           //   Hourly wage rates
+    external real rowvector lsl_Sigma           //   Variance of the wage regression
+    external real matrix    lsl_Hours           //   Hours of work
+    external real rowvector lsl_TaxregB         // Tax Regression
+    external real matrix    lsl_TaxregVars      //   Wage independent variables of tax regression
+    external real matrix    lsl_TaxregIas1      //   Wage interaction variables of tax regression
+    external real matrix    lsl_TaxregIas2      //   Wage interaction variables of tax regression
+    external real scalar    lsl_round           // To round, or not to round.
+
+    external real colvector lsl_C
+    external real matrix    lsl_CX
+    external real matrix    lsl_C2X
+    external real colvector lsl_L1
+    external real matrix    lsl_LX1
+    external real matrix    lsl_L2X1
+    external real matrix    lsl_L2       // Buggy, L2 is colvector in fact
+    external real matrix    lsl_LX2
+    external real matrix    lsl_L2X2
+    external real matrix    lsl_Xind
+    
+    real scalar nobs, n, r, i, e, c, iRV, nRV, nrep, wp
+    real colvector U, P, Un, Pn, Unr, Enr, Pnr, C, L1, BcC, BcL1
+    real rowvector Beta, Zeta, Bsig
+    real matrix Sigm, Xnr, CX, C2X, LX1, L2X1, L2, BcL2, LX2, L2X2, Xind, Wn, Mwage, TaxregX1, TaxregX2, TaxregX
+    
+    i    = 1            // Indicates first observation of active group
+    nobs = rows(lsl_Y)  // Number of observations
+    nRV  = lsl_rvars + 1
+    
+    U = J(nobs, 1, 0)
+    P = J(nobs, 1, 0)
+    
+    Bsig = lsl_Sigma
+    Sigm = (lsl_corr == 1 ? lowertriangle(invvech(lsl_Brnd')) : diag(lsl_Brnd'))   // Build variance-(covariance) matrix
+    
+    // Initialize random coefficients vector
+    if (lsl_rvars > 0) {
+        Zeta = J(rows(lsl_R), lsl_bfix, 0)
+        Zeta[.,lsl_Rvars] = cross(lsl_R[|1,1\.,lsl_rvars|]', Sigm')
+    }
+    
+    for (n = 1; n <= lsl_groups; n++) {
+        i   = lsl_J[n,1]
+        e   = lsl_J[n,2]
+        c   = e - i + 1
+        Xnr = lsl_X[|i,1\e,.|]
+        
+        // Fetch needed right hand side parts
+        if (lsl_wagep == 1) {
+            C    =  lsl_C[|i\e|]             // Get consumption from data
+            CX   = (cols(lsl_CX)   > 0 ?   lsl_CX[|i,1\e,.|] : J(c, 0, 0))
+            C2X  = (cols(lsl_C2X)  > 0 ?  lsl_C2X[|i,1\e,.|] : J(c, 0, 0))
+            L1   = lsl_L1[|i\e|]
+            LX1  = (cols(lsl_LX1)  > 0 ?  lsl_LX1[|i,1\e,.|] : J(c, 0, 0))
+            L2X1 = (cols(lsl_L2X1) > 0 ? lsl_L2X1[|i,1\e,.|] : J(c, 0, 0))
+            L2   = (cols(lsl_L2)   > 0 ?   lsl_L2[|i\e|]     : J(c, 0, 0))
+            LX2  = (cols(lsl_LX2)  > 0 ?  lsl_LX2[|i,1\e,.|] : J(c, 0, 0))
+            L2X2 = (cols(lsl_L2X2) > 0 ? lsl_L2X2[|i,1\e,.|] : J(c, 0, 0))
+            Xind = (cols(lsl_Xind) > 0 ? lsl_Xind[|i,1\e,.|] : J(c, 0, 0))
+            Wn   = lsl_Hwage[|i,1\e,.|]
+            
+            // Transform consumption and leisure
+            if (lsl_ufunc == "boxcox") {
+                BcC  = lsl_boxcox(C, lsl_lC)
+                BcL1 = lsl_boxcox(L1, lsl_lL1)
+                BcL2 = lsl_boxcox(L2, lsl_lL2)
+            }
+        }
+        
+        wp   = (lsl_wagep == 1 & sum(lsl_Wpred[|i,1\e,.|]) > 0)
+        nrep = (lsl_rvars > 0 | wp == 1 ? lsl_draws : 1)
+        
+        Un = J(c, 1, 0)
+        Pn = J(c, 1, 0)
+        for (r = 1; r <= nrep; r++) {
+            // Indicates the active Halton sequence
+            iRV  = lsl_draws * (n - 1) + r
+            
+            if (wp == 1) {
+                //
+                // Calculate monthly earnings
+                //
+
+                // Adjust wages with random draws if prediction enabled
+                if (lsl_wagep == 1) Wn = lsl_Hwage[|i,1\e,.|] :* exp(Bsig :* lsl_R[|iRV,nRV\iRV,.|] :* lsl_Wpred[|i,1\e,.|])
+
+                // Calculate monthly earnings
+                Mwage = (lsl_Days[|i\e|] :/ 12 :/ 7) :* lsl_Hours[|i,1\e,.|] :* Wn
+
+                // Round monthly earnings if enabled
+                if (lsl_round == 1) Mwage = round(Mwage, 0.01)
+
+                //
+                // Predict disposable income
+                //
+
+                // Fill matrix of independent variables for dpi prediction
+                TaxregX1 = (Mwage[.,1], Mwage[.,1]:^2, lsl_TaxregIas1[|i,1\e,.|] :* Mwage[.,1],
+                                                       lsl_TaxregIas1[|i,1\e,.|] :* Mwage[.,1]:^2)
+                if (cols(L2) == 1) TaxregX2 = (Mwage[.,2], Mwage[.,2]:^2, lsl_TaxregIas2[|i,1\e,.|] :* Mwage[.,2],
+                                                                          lsl_TaxregIas2[|i,1\e,.|] :* Mwage[.,2]:^2)
+                else           TaxregX2 = J(c, 0, 0)
+                TaxregX = (TaxregX1, TaxregX2, lsl_TaxregVars[|i,1\e,.|], J(c, 1, 1))
+
+                // Predict disposable income (can't be negative!)
+                C = rowmax((cross(TaxregX', lsl_TaxregB') :/ lsl_boxcc, J(c, 1, 1)))
+
+                // Build matrix with independent variables
+                if      (lsl_ufunc == "tran") Xnr = (log(C)  :* (CX,  log(C)  :* C2X,   log(L1),   log(L2)),
+                                                     log(L1) :* (LX1, log(L1) :* L2X1),
+                                                     log(L2) :* (LX2, log(L2) :* L2X2), log(L1) :* log(L2), Xind)
+                else if (lsl_ufunc == "quad") Xnr = (C  :* (CX,  C  :* C2X,   L1,   L2),
+                                                     L1 :* (LX1, L1 :* L2X1),
+                                                     L2 :* (LX2, L2 :* L2X2), L1 :* L2, Xind)
+                else if (lsl_ufunc == "boxcox") {
+                    BcC = lsl_boxcox(C, lsl_lC)
+                    Xnr = ((CX, BcL1, BcL2) :* BcC, LX1 :* BcL1, LX2 :* BcL2, BcL1 :* BcL2, Xind)
+                }
+            }
+            
+            // Build (random?) coefficients vector
+            Beta = lsl_Bfix :+ (lsl_rvars > 0 ? Zeta[iRV,.] : 0)
+            
+            // Calculate systematic utility and choice probability
+            Unr = cross(Xnr', Beta')
+            Enr = exp(Unr :+ colmin(-mean(Unr) \ 700 :- colmax(Unr)))   // Standardize to avoid missings
+            Pnr = Enr :/ colsum(Enr)
+            
+            // Sum up
+            Un = Un :+ Unr
+            Pn = Pn :+ Pnr
+        }
+
+        // Next household
+        U[|i\e|] = Un :/ nrep
+        P[|i\e|] = Pn :/ nrep
+    }
+    
+    // Store prediction
+    real matrix result
+    real scalar a
+    result = J(nobs, cols(opt), 0)
+    for (a = 1; a <= cols(opt); a++) result[.,a] = (opt[a] == "pc1" ? P : U)
+    st_store(., newvar, touse, result)
+}
+
 mata set matastrict off
+end
+
+
+cap program drop lslogit_p
+/**
+ * Conditional Logit but integrating out wage prediction errors (Wrapper programm)
+ * 
+ * @param `xb'  Predict systematic utility
+ * @param `pc1' Predict choice probabilities
+ */
+program define lslogit_p
+    syntax newvarlist(min=1 max=2) [if] [in] [, xb pc1]
+    
+    
+    //
+    // Initialize
+    //
+    
+    // Predict command works only with lslogit estimates
+    if ("`e(cmd)'" != "lslogit") error 301
+    
+    // What to predict?
+    local n_varlist : word count `varlist'
+    if ("`xb'" != "" & "`pc1'" != "") {
+        if (`n_varlist' != 2) {
+            di in r "either option 'xb' or 'pc1' allowed"
+            exit 498
+        }
+        else local opt pc1 xb
+    }
+    else if ("`xb'" == "" & "`pc1'" == "") {
+        if (`n_varlist' == 2) local opt pc1 xb
+        else {
+            di as text "(option pc1 assumed; probability of success given one success within group)"
+            local opt pc1    // Default: pc1
+        }
+    }
+    else local opt `xb'`pc1'
+    
+    // Mark the estimation sample
+    marksample touse, novarlist
+    markout `touse' `e(depvar)' `e(group)' `e(consum)' `e(leisure)' `e(cx)' `e(lx1)' `e(lx2)' `e(c2x)'  ///
+                    `e(l2x1)' `e(l2x2)' `e(indeps)' `e(wagepred)' `e(days)' `e(tria1)' `e(tria2)'
+    
+    // Restrict sample to those of interest
+    qui sort `e(group)' // BUGGY
+    preserve
+    qui keep if `touse'
+    qui count
+    local nobs = r(N)
+    
+    
+    //
+    // Prepare data
+    //
+    
+    local n_leisure  : word count `e(leisure)'
+    local n_cxias    : word count `e(cx)'
+    local n_lx1ias   : word count `e(lx1)'
+    local n_lx2ias   : word count `e(lx2)'
+    local n_c2xias   : word count `e(c2x)'
+    local n_l2x1ias  : word count `e(l2x1)'
+    local n_l2x2ias  : word count `e(l2x2)'
+    local n_indeps   : word count `e(indeps)'
+    local n_randvars : word count `e(randvars)'
+    local n_wagep    : word count `e(wagepred)'
+    local n_hecksig  : word count `e(hecksigma)'
+    local n_hwage    : word count `e(hwage)'
+    local n_taxrias1 : word count `e(taxreg_ia1)'
+    local n_taxrias2 : word count `e(taxreg_ia2)'
+    local n_heckvars : word count `e(heckman)'      // Not yet implemented
+    local n_selvars  : word count `e(select)'       // Not yet implemented
+    
+    local rvars      : word count `e(randvars)'
+    
+    
+    //
+    // Move data to Mata
+    //
+    
+    mata: lsl_J = panelsetup(st_data(., "`e(group)'"), 1)   // Choices per group
+    mata: lsl_groups = rows(lsl_J)                          // Number of groups
+    
+    mata: lsl_ufunc = "`e(ufunc)'"              // Utility function
+    mata: lsl_nlei  = `n_leisure'               // Utility function
+    mata: lsl_draws = strtoreal("`e(draws)'")   // Number of draws
+    mata: lsl_burn  = strtoreal("`e(burn)'")    // Number of draws to burn
+    mata: lsl_round = ("`e(round)'" == "1")     // To round, or not to round?
+    mata: lsl_rvars = `rvars'                                                                           // Random coefficients
+    mata: lsl_Rvars = ("`e(randvars)'" != "" ? strtoreal(tokens("`e(randvars)'"))' : J(0, 1, 0))        // Random coefficients?
+    mata: lsl_corr  = ("`e(randvars)'" != "" & "`e(corr)'" == "1" ? 1 : 0)                              // Correlation?
+    mata: lsl_Sigma = ("`e(hecksigma)'" != "" ? strtoreal(tokens("`e(hecksigma)'")) : J(1, `n_leisure', 0))
+    mata: lsl_wagep = `e(wagep)'                                                                        // Run Wage Prediction
+    mata: lsl_Wpred = (lsl_wagep == 1 ? st_data(., "`e(wagepred)'") : J(`nobs', lsl_nlei, 0))           // Dummies enabling or disabling the wage prediction
+    mata: lsl_Hwage = ("`e(hwage)'" != "" ? st_data(., tokens("`e(hwage)'")) : J(`nobs', lsl_nlei, 0))  // Hourly wage rates
+    mata: lsl_Days  = ("`e(days)'" != "" ? st_data(., "`e(days)'") : J(`nobs', 1, 365))                 // Days of taxyear
+    
+    
+    //
+    // Tax regression
+    //
+    
+    if ("`e(taxreg)'" == "1") {
+        mata: lsl_TaxregB    = st_matrix("e(taxreg_b)")                                            // Tax regression estimates
+        mata: lsl_TaxregIas1 = ("`e(taxreg_ia1)'" != "" ? st_data(., tokens("`e(taxreg_ia1)'")) : J(`nobs', 0, 0))   // Interaction variables on Mwage1 and Mwage1^2
+        mata: lsl_TaxregIas2 = ("`e(taxreg_ia2)'" != "" ? st_data(., tokens("`e(taxreg_ia2)'")) : J(`nobs', 0, 0))   // Interaction variables on Mwage2 and Mwage2^2
+        mata: lsl_TaxregVars = st_data(., tokens("`e(taxreg_vars)'"))                                   // Variables that are independent of m_wage
+    }
+    
+    // Box-Cox normalizing constants
+    if ("`e(ufunc)'" == "boxcox" & "`e(boxcc)'" != "" & "`e(boxcl)'" != "") {
+        mata: lsl_boxcc = (`e(boxcc)' > 0 & `e(boxcc)' < . ? `e(boxcc)' : 1)
+        mata: lsl_boxcl = (`e(boxcl)' > 0 & `e(boxcl)' < . ? `e(boxcl)' : 1)
+    }
+    else mata: lsl_boxcc = lsl_boxcl = 1
+    
+    mata: lsl_Y     = st_data(., "`e(depvar)'")                                                             // Dependent variable
+    
+    // Consumption, squared and interactions
+    mata: lsl_C   = st_data(., "`e(consum)'") :/ lsl_boxcc
+    mata: lsl_CX  = ((`n_cxias'  > 0 ? st_data(., tokens("`e(cx)'"))   ///
+                                     : J(`nobs', 0, 0)), J(`nobs', 1, 1))
+    mata: lsl_C2X = ((`n_c2xias' > 0 ? st_data(., tokens("`e(c2x)'"))  ///
+                                     : J(`nobs', 0, 0)), J(`nobs', (lsl_ufunc != "boxcox" ? 1 : 0), 1))
+
+    // Leisure, squared and interactions
+    forval i = 1/2 {
+        local var : word `i' of `e(leisure)'
+        if ("`var'" != "") {
+            mata: lsl_L`i'   = st_data(., "`var'") :/ lsl_boxcl
+            mata: lsl_LX`i'  = ((`n_lx`i'ias'  >  0 ? st_data(., tokens("`e(lx`i')'"))     ///
+                                                    : J(`nobs', 0, 0)), J(`nobs', 1, 1))
+            mata: lsl_L2X`i' = ((`n_l2x`i'ias' >  0 ? st_data(., tokens("`e(l2x`i')'"))    ///
+                                                    : J(`nobs', 0, 0)), J(`nobs', (lsl_ufunc != "boxcox" ? 1 : 0), 1))
+        }
+        else {
+            mata: lsl_L`i'   = J(`nobs', 0, 0)
+            mata: lsl_LX`i'  = J(`nobs', 0, 0)
+            mata: lsl_L2X`i' = J(`nobs', 0, 0)
+        }
+    }
+    // Hypothetical hours of work
+    mata: lsl_Hours = `e(totaltime)' :- (lsl_L1, lsl_L2) :* lsl_boxcl  // caution: Box-Cox normalization!
+
+    // Dummy variables
+    mata: lsl_Xind = (`n_indeps' > 0 ? st_data(., tokens("`e(indeps)'")) : J(`nobs', 0, 0))
+    
+    // Build coefficients vector
+    mata: lsl_bfix = cols(lsl_CX)  + cols(lsl_C2X) + lsl_nlei + ///
+                     cols(lsl_LX1) + cols(lsl_L2X1) + cols(lsl_LX2) + cols(lsl_L2X2) + ///
+                     (lsl_nlei == 2) + cols(lsl_Xind)
+    mata: lsl_B    = st_matrix("e(b)")
+    mata: lsl_Bfix = lsl_B[|1\lsl_bfix|]
+    mata: lsl_Brnd = (lsl_rvars > 0 ? lsl_B[|lsl_bfix + (lsl_ufunc == "boxcox" ? 1 + lsl_nlei : 0) + 1\.|] : J(0, 0, 0))     // Get auxiliary random coefficients
+    
+    // Build right hand side
+    if ("`e(ufunc)'" == "tran") {           // Translog utility
+        mata: lsl_X = (log(lsl_C)  :* (lsl_CX,  log(lsl_C)  :* lsl_C2X,   log(lsl_L1),   log(lsl_L2)),      ///
+                       log(lsl_L1) :* (lsl_LX1, log(lsl_L1) :* lsl_L2X1),                                   ///
+                       log(lsl_L2) :* (lsl_LX2, log(lsl_L2) :* lsl_L2X2), log(lsl_L1) :* log(lsl_L2), lsl_Xind)
+    }
+    else if ("`e(ufunc)'" == "quad") {      // Quadratic utility
+        mata: lsl_X = (lsl_C  :* (lsl_CX,  lsl_C  :* lsl_C2X,   lsl_L1,   lsl_L2),      ///
+                       lsl_L1 :* (lsl_LX1, lsl_L1 :* lsl_L2X1),                         ///
+                       lsl_L2 :* (lsl_LX2, lsl_L2 :* lsl_L2X2), lsl_L1 :* lsl_L2, lsl_Xind)
+    }
+    else if ("`e(ufunc)'" == "boxcox") {    // Box-Cox utility
+        mata: lsl_lC  = lsl_B[lsl_bfix + 1]
+        mata: lsl_lL1 = lsl_B[lsl_bfix + 2]
+        mata: lsl_lL2 = (lsl_nlei == 2 ? lsl_B[lsl_bfix + 3] : 0)
+        mata: lsl_X   = (lsl_boxcox(lsl_C, lsl_lC)   :* (lsl_CX,  lsl_boxcox(lsl_L1, lsl_lL1),   lsl_boxcox(lsl_L2, lsl_lL2)),    ///
+                         lsl_boxcox(lsl_L1, lsl_lL1) :*  lsl_LX1,                                                                 ///
+                         lsl_boxcox(lsl_L2, lsl_lL2) :*  lsl_LX2, lsl_boxcox(lsl_L1, lsl_lL1) :* lsl_boxcox(lsl_L2, lsl_lL2), lsl_Xind)
+    }
+    
+    // Generate Halton sequences
+    mata: lsl_R = (`rvars' + `n_wagep' > 0 ? invnormal(halton(lsl_groups * lsl_draws, `rvars' + `n_wagep', 1 + lsl_burn)) : J(`nobs', 0, 0))
+    
+    // Restore sample
+    restore
+    
+    
+    //
+    // Predict
+    //
+    
+    foreach v of local varlist {
+        qui gen double `v' = .
+    }
+    mata: lslogit_p(tokens("`varlist'"), "`touse'", tokens("`opt'"))
+    
+    
+    //
+    // Clean up
+    //
+    
+    foreach m in round ufunc Weight Y Hwage boxcc boxcl C CX C2X L1 LX1 L2X1 L2 LX2 L2X2 Xind X sml fml ///
+                 HeckmVars SelectVars Days Hours wagep Wpred Sigma TaxregB TaxregIas1 TaxregIas2 TaxregVars ///
+                 groups J draws burn Rvars corr R lC lL1 lL2 B Bfix bfix rvars {
+        cap mata mata drop lsl_`m'
+    }
 end
 
 ***
