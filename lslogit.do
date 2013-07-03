@@ -1051,16 +1051,6 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                 // Adjust wages with random draws if prediction enabled
                 if (lsl_wagep) Wn = Hwage[|i,1\e,.|] :* exp(cross((CholBW, CholW)', lsl_R[|iRV,1\iRV,cols(lsl_R) - 1|]')' :* lsl_Wpred[|i,1\e,.|])
                 
-                /*
-                Bwage
-                lsl_Hours[|i,1\e,.|], Hwage[|i,1\e,.|], Wn
-                */
-                
-                /*
-                ("Wobs", "lsl_Hwage", "Hwage", "lsl_Wpred", "exp(...)", "lsl_Hours", "Wn")
-                lsl_Wobs[|i,1\e,.|], lsl_Hwage[|i,1\e,.|], Hwage[|i,1\e,.|], lsl_Wpred[|i,1\e,.|], exp(cross((CholBW, CholW)', lsl_R[|iRV,1\iRV,cols(lsl_R) - 1|]')' :* lsl_Wpred[|i,1\e,.|]), lsl_Hours[|i,1\e,.|], Wn
-                */
-                
                 // Calculate monthly earnings
                 Mwage = (lsl_Days[|i\e|] :/ 12 :/ 7) :* lsl_Hours[|i,1\e,.|] :* Wn
 
