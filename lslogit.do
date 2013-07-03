@@ -1691,6 +1691,32 @@ program define lslogit_p, rclass
 
 
     //
+    // Build coefficients vector
+    //
+    
+    mata: lsl_bwage = (`n_heckvars' != 0) + `n_heckvars'
+    mata: lsl_bheck = (lsl_wagecorr > 0) + lsl_wagecorr
+    mata: lsl_brnd  = (lsl_corr == 1 ? lsl_rvars * (lsl_rvars + 1) / 2 : lsl_rvars)
+    mata: lsl_blam  = (lsl_ufunc == "boxcox" ? 1 + lsl_nlei : 0)
+    mata: lsl_bfix  = `n_cxias' + 1 + (`n_c2xias' + 1) * (lsl_ufunc != "boxcox") + lsl_nlei + `n_lx1ias' + 1 + (`n_l2x1ias' + 1) * (lsl_ufunc != "boxcox") + ///
+                      (`n_lx2ias' + 1 + (`n_l2x2ias' + 1) * (lsl_ufunc != "boxcox") + 1) * (lsl_nlei == 2) + `n_indeps'
+    
+    mata: lsl_iwage = 1         + lsl_bfix
+    mata: lsl_iheck = lsl_iwage + lsl_bwage
+    mata: lsl_ilam  = lsl_iheck + lsl_bheck
+    mata: lsl_irnd  = lsl_ilam  + lsl_blam
+    
+    mata: lsl_iC  = `n_cxias' + 1
+    mata: lsl_iL1 = `n_cxias' + 1 + `n_c2xias' + 1 + lsl_nlei + `n_lx1ias' + 1
+    mata: lsl_iL2 = lsl_iL1 + `n_l2x1ias' + 1 + `n_lx2ias' + 1
+    
+    mata: lsl_Bfix  = lsl_B[|1\lsl_bfix|]
+    mata: lsl_Bwage = (lsl_bwage > 0 ? lsl_B[|lsl_iwage\lsl_iwage + lsl_bwage - 1|] : J(0, 0, 0))     // Wage coefficients
+    mata: lsl_Bsig  = (lsl_bheck > 0 ? lsl_B[lsl_iheck]                             : J(0, 0, 0))     //   Cholesky factor of wage variance
+    mata: lsl_Brnd  = (lsl_rvars > 0 ? lsl_B[|lsl_irnd\lsl_irnd + lsl_brnd - 1|]    : J(0, 0, 0))     // Get auxiliary random coefficients
+    
+    
+    //
     // Tax regression
     //
 
@@ -1752,7 +1778,11 @@ program define lslogit_p, rclass
     else if ("`e(ufunc)'" == "boxcox") {    // Box-Cox utility
         mata: lsl_lC  = lsl_B[lsl_ilam]
         mata: lsl_lL1 = lsl_B[lsl_ilam + 1]
-        mata: lsl_lL2 = (lsl_nlei == 2 ? lsl_B[ilam + 2] : 0)
+        mata: lsl_lL2 = (lsl_nlei == 2 ? lsl_B[lsl_ilam + 2] : 0)
+        mata: lsl_B
+        mata: lsl_Bfix
+        mata: "lsl_lC", "lsl_lL1", "lsl_lL2"
+        mata: lsl_lC, lsl_lL1, lsl_lL2
         mata: lsl_X   = (lsl_boxcox(lsl_C, lsl_lC)   :* (lsl_CX,  lsl_boxcox(lsl_L1, lsl_lL1),   lsl_boxcox(lsl_L2, lsl_lL2)),    ///
                          lsl_boxcox(lsl_L1, lsl_lL1) :*  lsl_LX1,                                                                 ///
                          lsl_boxcox(lsl_L2, lsl_lL2) :*  lsl_LX2, lsl_boxcox(lsl_L1, lsl_lL1) :* lsl_boxcox(lsl_L2, lsl_lL2), lsl_Xind)
@@ -1761,32 +1791,6 @@ program define lslogit_p, rclass
     // Generate Halton sequences
     local R_rvars = `rvars' + `e(wagep)' * `n_leisure' + !inlist("`e(taxreg_rmse)'", "", ".")
     mata: lsl_R = (`R_rvars' > 0 ? invnormal(halton(lsl_groups * lsl_draws, `R_rvars', 1 + lsl_burn)) : J(`nobs', 0, 0))
-    
-    
-    //
-    // Build coefficients vector
-    //
-    
-    mata: lsl_bwage = (`n_heckvars' != 0) + `n_heckvars'
-    mata: lsl_bheck = (lsl_wagecorr > 0) + lsl_wagecorr
-    mata: lsl_brnd  = (lsl_corr == 1 ? lsl_rvars * (lsl_rvars + 1) / 2 : lsl_rvars)
-    mata: lsl_blam  = (lsl_ufunc == "boxcox" ? 1 + lsl_nlei : 0)
-    mata: lsl_bfix  = `n_cxias' + 1 + `n_c2xias' + 1 + lsl_nlei + `n_lx1ias' + 1 + (`n_l2x1ias' + 1) * (lsl_ufunc != "boxcox") + ///
-                      (`n_lx2ias' + 1 + (`n_l2x2ias' + 1) * (lsl_ufunc != "boxcox") + 1) * (lsl_nlei == 2) + `n_indeps'
-    
-    mata: lsl_iwage = 1         + lsl_bfix
-    mata: lsl_iheck = lsl_iwage + lsl_bwage
-    mata: lsl_ilam  = lsl_iheck + lsl_bheck
-    mata: lsl_irnd  = lsl_ilam  + lsl_blam
-    
-    mata: lsl_iC  = `n_cxias' + 1
-    mata: lsl_iL1 = `n_cxias' + 1 + `n_c2xias' + 1 + lsl_nlei + `n_lx1ias' + 1
-    mata: lsl_iL2 = lsl_iL1 + `n_l2x1ias' + 1 + `n_lx2ias' + 1
-    
-    mata: lsl_Bfix  = lsl_B[|1\lsl_bfix|]
-    mata: lsl_Bwage = (lsl_bwage > 0 ? lsl_B[|lsl_iwage\lsl_iwage + lsl_bwage - 1|] : J(0, 0, 0))     // Wage coefficients
-    mata: lsl_Bsig  = (lsl_bheck > 0 ? lsl_B[lsl_iheck]                             : J(0, 0, 0))     //   Cholesky factor of wage variance
-    mata: lsl_Brnd  = (lsl_rvars > 0 ? lsl_B[|lsl_irnd\lsl_irnd + lsl_brnd - 1|]    : J(0, 0, 0))     // Get auxiliary random coefficients
     
     
     //
