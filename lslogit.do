@@ -1,8 +1,10 @@
+*! lslogit v0.2, 12aug2013
+
 /*****************************************************************************
  *
  * lslogit -- ESTIMATING MIXED LOGIT LABOR SUPPLY MODELS WITH STATA
  * 
- * (c) 2012-2013 Max Löffler
+ * (c) 2012-2013 Max Löffler <loeffler@iza.org>
  *
  *****************************************************************************/
 
