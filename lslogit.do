@@ -319,7 +319,14 @@ program define lslogit_Estimate, eclass
     }
     
     // Build weight settings
-    if ("`weight'" != "") local wgt "[`weight'=`exp']"
+    if ("`weight'" != "") {
+        tempvar wgtvar
+        qui gen `wgtvar' = `exp' if `touse'
+        local wgt "[`weight'=`wgtvar']"
+        qui sum `wgtvar', meanonly
+        local wgtnobs = r(sum)
+    }
+    else local wgtnobs = `nobs'
     
     // Necessary number of random variables
     local rvars = `n_randvars' + `n_wagep' + (`taxreg_rmse' > 0)
@@ -389,10 +396,8 @@ program define lslogit_Estimate, eclass
         if (e(converged) == 1) {
             // Save results
             mat `init_from' = e(b)
-            local nobs      = e(N)
             local k         = e(k)
             local ll        = e(ll)
-            //local ll_0      = e(ll_0) // calculate null model on our own
             
             // Update sample
             qui replace `touse' = e(sample)
@@ -416,11 +421,7 @@ program define lslogit_Estimate, eclass
         }
         
         // Save init options
-        local initopt init(`init_from', copy) obs(`nobs') lf0(`k' `ll')
-    }
-    else {
-        qui count if `touse'
-        local nobs = r(N)
+        local initopt init(`init_from', copy) lf0(`k' `ll')
     }
     
     // Initial values given
@@ -445,8 +446,8 @@ program define lslogit_Estimate, eclass
     
     mata: lsl_round  = ("`round'" != "")                                    // To round, or not to round?
     mata: lsl_ufunc  = st_local("ufunc")                                    // Utility function
-    mata: lsl_Weight = ("`exp'" != "" ? st_data(., "`exp'") ///
-                                      : J(`nobs', 1, 1))                    // Weight
+    mata: lsl_Weight = ("`weight'" != "" ? st_data(., "`wgtvar'") ///
+                                         : J(`nobs', 1, 1))                    // Weight
     mata: lsl_Y      = st_data(., "`varlist'")                              // Left hand side
     mata: lsl_Hwage  = (`n_hwage' > 0 ? st_data(., tokens("`hwage'"))   ///
                                       : J(`nobs', `n_leisure', 0))          // Hourly wage rates
@@ -570,8 +571,8 @@ program define lslogit_Estimate, eclass
     //
     
     mata: st_local("SigmaW", strofreal((lsl_joint ? sqrt(cross(lsl_Wobs :* log(lsl_Hwage), log(lsl_Hwage)) / (colsum(lsl_Wobs) - `n_heckvars' - 1)) : 0)))
-    mata: st_local("ll_0", strofreal(- colsum(log(lsl_J[.,3]))          ///
-                                     + (lsl_joint ? cross(lsl_Wobs, log(normalden(log(lsl_Hwage) :/ `SigmaW')) :- log(`SigmaW')) : 0)))
+    mata: st_local("ll_0", strofreal(- colsum(cross(lsl_Weight[lsl_J[.,1]], log(lsl_J[.,3])))          ///
+                                     + (lsl_joint ? cross(lsl_Weight :* lsl_Wobs, log(normalden(log(lsl_Hwage) :/ `SigmaW')) :- log(`SigmaW')) : 0)))
     
     // Restore data
     restore
@@ -652,7 +653,7 @@ program define lslogit_Estimate, eclass
     
     if ("`debug'" != "") di as text "ml `method'`debug' lslogit_d2() `eq_consum' `eq_leisure' `eq_indeps' `eq_wages' `eq_boxcox' `eq_rands'"
     ml model `method'`debug' lslogit_d2() `eq_consum' `eq_leisure' `eq_indeps' `eq_wages' `eq_boxcox' `eq_rands' ///
-            if `touse' `wgt', group(`group') `initopt' search(off) iterate(`iterate') nopreserve max `difficult' `trace' `gradient' `hessian' technique(`technique')
+            if `touse' `wgt', group(`group') `initopt' obs(`wgtnobs') search(off) iterate(`iterate') nopreserve max `difficult' `trace' `gradient' `hessian' technique(`technique')
     
     //
     // Save results
