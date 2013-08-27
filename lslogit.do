@@ -96,6 +96,22 @@ program define lslogit_Estimate, eclass
     markout `touse' `varlist' `group' `consumption' `leisure' `cx' `lx1' `lx2' `c2x' `l2x1' `l2x2'  ///
                     `indeps' `wagepred' `days' `tria1' `tria2' `heckman'
     
+    // Check for observations
+    qui count if `touse'
+    qui count if `touse'
+    local nobs = r(N)
+    if (`nobs' <= 0) {
+        di in r "no observations"
+        exit 2000
+    }
+    
+    // Check dependent variable
+    cap assert inlist(`varlist', 0, 1)
+    if (_rc != 0) {
+        di in r "choice variable has to equal zero or one"
+        exit 498
+    }
+    
     // Verbose mode
     if ("`verbose'" == "") local qui qui
     
