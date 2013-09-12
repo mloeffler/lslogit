@@ -491,7 +491,7 @@ program define lslogit_Estimate, eclass
     mata: lsl_joint       = ("`joint'" != "")                                                // ML joint estimation?
     mata: lsl_Wobs        = (lsl_Y :* (log(lsl_Hwage) :< .))                                 // Wage observed?
     mata: lsl_WageVars    = (lsl_joint == 1 ? (st_data(., tokens("`wagevars'")), J(`nobs', 1, 1))    ///
-                                                        : J(`nobs', 0, 0))                  // Wage variables
+                                            : J(`nobs', 0, 0))                               // Wage variables
     mata: lsl_Days        = ("`days'" != "" ? st_data(., "`days'") : J(`nobs', 1, 365))      // Days of taxyear
     mata: lsl_Hours       = `totaltime' :- (lsl_L1, lsl_L2) :* lsl_boxcl                     // Hypothetical hours (caution: Box-Cox normalization!)
     mata: lsl_wagecorr    = `corrBW'                                                         // Correlate wage rates and preferences?
@@ -544,11 +544,12 @@ program define lslogit_Estimate, eclass
     // Random draws
     //
     
-    mata: lsl_draws = strtoreal(st_local("draws"))                                                                      // Number of draws
-    mata: lsl_burn  = strtoreal(st_local("burn"))                                                                       // Number of draws to burn
-    mata: lsl_Rvars = ("`randvars'" != "" ? strtoreal(tokens("`randvars'"))' : J(0, 1, 0))                              // Random coefficients
-    mata: lsl_corr  = ("`corr'" != "")                                                                                  // Random coefficients correlated?
-    mata: lsl_R     = (`rvars' > 0 ? invnormal(halton(lsl_groups*lsl_draws, `rvars', 1+lsl_burn)) : J(`nobs', 0, 0))    // Halton sequences
+    mata: lsl_draws = strtoreal(st_local("draws"))                                                      // Number of draws
+    mata: lsl_burn  = strtoreal(st_local("burn"))                                                       // Number of draws to burn
+    mata: lsl_Rvars = ("`randvars'" != "" ? strtoreal(tokens("`randvars'"))' : J(0, 1, 0))              // Random coefficients
+    mata: lsl_corr  = ("`corr'" != "")                                                                  // Random coefficients correlated?
+    mata: lsl_R     = (`rvars' > 0 ? invnormal(halton(lsl_groups * lsl_draws, `rvars', 1 + lsl_burn))   ///
+                                   : J(`nobs', 0, 0))    // Halton sequences
     
     
     //
@@ -588,7 +589,7 @@ program define lslogit_Estimate, eclass
         
         // Correlation with preferences?
         if ("`wagecorr'" != "") {
-            local eq_wages `eq_wages' /l_W1_W1      // Cholesky for Var(W1)
+            local eq_wages `eq_wages' /l_W1_W1                          // Cholesky for Var(W1)
             if (`wagecorrC'  == 1) local eq_wages `eq_wages' /l_C_W1    // Cholesky for Cov(W1, C)
             if (`wagecorrL1' == 1) local eq_wages `eq_wages' /l_L1_W1   // Cholesky for Cov(W1, L1)
             if (`wagecorrL2' == 1) local eq_wages `eq_wages' /l_L2_W2   // Cholesky for Cov(W2, L2) -- BUGGY!!
@@ -1288,7 +1289,6 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     }
     
     // Add likelihood of wage equation?
-    /*
     if (lsl_joint) {
         lnf = lnf + cross(lsl_Wobs, log(normalden(LnWresPur :/ SigmaW)) :- log(SigmaW))
         if (todo >= 1) {
@@ -1302,7 +1302,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                                                colsum(lsl_Wobs) :* cross(LnWresPur, lsl_WageVars) :/ cross(LnWresPur, LnWresPur)
             }
         }
-    }*/
+    }
     
     // Calculate dude share
     if (todo == 0 | lsl_lambda > 0) st_numscalar("lsl_dudes", sum(Dude :< 0) / (nobs * lsl_draws))
