@@ -1,8 +1,10 @@
+*! lslogit v0.2, 12aug2013
+
 /*****************************************************************************
  *
  * lslogit -- ESTIMATING MIXED LOGIT LABOR SUPPLY MODELS WITH STATA
  * 
- * (c) 2012-2013 Max Löffler
+ * (c) 2012-2013 Max Löffler <loeffler@iza.org>
  *
  *****************************************************************************/
 
@@ -93,6 +95,21 @@ program define lslogit_Estimate, eclass
     marksample touse
     markout `touse' `varlist' `group' `consumption' `leisure' `cx' `lx1' `lx2' `c2x' `l2x1' `l2x2'  ///
                     `indeps' `wagepred' `days' `tria1' `tria2' `heckman'
+    
+    // Check for observations
+    qui count if `touse'
+    local nobs = r(N)
+    if (`nobs' <= 0) {
+        di in r "no observations"
+        exit 2000
+    }
+    
+    // Check dependent variable
+    cap assert inlist(`varlist', 0, 1)
+    if (_rc != 0) {
+        di in r "choice variable has to equal zero or one"
+        exit 498
+    }
     
     // Verbose mode
     if ("`verbose'" == "") local qui qui
@@ -303,7 +320,14 @@ program define lslogit_Estimate, eclass
     }
     
     // Build weight settings
-    if ("`weight'" != "") local wgt "[`weight'=`exp']"
+    if ("`weight'" != "") {
+        tempvar wgtvar
+        qui gen `wgtvar' = `exp' if `touse'
+        local wgt "[`weight'=`wgtvar']"
+        qui sum `wgtvar', meanonly
+        local wgtnobs = r(sum)
+    }
+    else local wgtnobs = `nobs'
     
     // Necessary number of random variables
     local rvars = `n_randvars' + `n_wagep' + (`taxreg_rmse' > 0)
@@ -373,10 +397,8 @@ program define lslogit_Estimate, eclass
         if (e(converged) == 1) {
             // Save results
             mat `init_from' = e(b)
-            local nobs      = e(N)
             local k         = e(k)
             local ll        = e(ll)
-            //local ll_0      = e(ll_0) // calculate null model on our own
             
             // Update sample
             qui replace `touse' = e(sample)
@@ -400,11 +422,7 @@ program define lslogit_Estimate, eclass
         }
         
         // Save init options
-        local initopt init(`init_from', copy) obs(`nobs') lf0(`k' `ll')
-    }
-    else {
-        qui count if `touse'
-        local nobs = r(N)
+        local initopt init(`init_from', copy) lf0(`k' `ll')
     }
     
     // Initial values given
@@ -429,8 +447,8 @@ program define lslogit_Estimate, eclass
     
     mata: lsl_round  = ("`round'" != "")                                    // To round, or not to round?
     mata: lsl_ufunc  = st_local("ufunc")                                    // Utility function
-    mata: lsl_Weight = ("`exp'" != "" ? st_data(., "`exp'") ///
-                                      : J(`nobs', 1, 1))                    // Weight
+    mata: lsl_Weight = ("`weight'" != "" ? st_data(., "`wgtvar'") ///
+                                         : J(`nobs', 1, 1))                    // Weight
     mata: lsl_Y      = st_data(., "`varlist'")                              // Left hand side
     mata: lsl_Hwage  = (`n_hwage' > 0 ? st_data(., tokens("`hwage'"))   ///
                                       : J(`nobs', `n_leisure', 0))          // Hourly wage rates
@@ -554,8 +572,8 @@ program define lslogit_Estimate, eclass
     //
     
     mata: st_local("SigmaW", strofreal((lsl_joint ? sqrt(cross(lsl_Wobs :* log(lsl_Hwage), log(lsl_Hwage)) / (colsum(lsl_Wobs) - `n_heckvars' - 1)) : 0)))
-    mata: st_local("ll_0", strofreal(- colsum(log(lsl_J[.,3]))          ///
-                                     + (lsl_joint ? cross(lsl_Wobs, log(normalden(log(lsl_Hwage) :/ `SigmaW')) :- log(`SigmaW')) : 0)))
+    mata: st_local("ll_0", strofreal(- colsum(cross(lsl_Weight[lsl_J[.,1]], log(lsl_J[.,3])))          ///
+                                     + (lsl_joint ? cross(lsl_Weight :* lsl_Wobs, log(normalden(log(lsl_Hwage) :/ `SigmaW')) :- log(`SigmaW')) : 0)))
     
     // Restore data
     restore
@@ -636,7 +654,7 @@ program define lslogit_Estimate, eclass
     
     if ("`debug'" != "") di as text "ml `method'`debug' lslogit_d2() `eq_consum' `eq_leisure' `eq_indeps' `eq_wages' `eq_boxcox' `eq_rands'"
     ml model `method'`debug' lslogit_d2() `eq_consum' `eq_leisure' `eq_indeps' `eq_wages' `eq_boxcox' `eq_rands' ///
-            if `touse' `wgt', group(`group') `initopt' search(off) iterate(`iterate') nopreserve max `difficult' `trace' `gradient' `hessian' technique(`technique')
+            if `touse' `wgt', group(`group') `initopt' obs(`wgtnobs') search(off) iterate(`iterate') nopreserve max `difficult' `trace' `gradient' `hessian' technique(`technique')
     
     //
     // Save results
@@ -1670,6 +1688,32 @@ program define lslogit_p, rclass
 
 
     //
+    // Build coefficients vector
+    //
+    
+    mata: lsl_bwage = (`n_heckvars' != 0) + `n_heckvars'
+    mata: lsl_bheck = (lsl_wagecorr > 0) + lsl_wagecorr
+    mata: lsl_brnd  = (lsl_corr == 1 ? lsl_rvars * (lsl_rvars + 1) / 2 : lsl_rvars)
+    mata: lsl_blam  = (lsl_ufunc == "boxcox" ? 1 + lsl_nlei : 0)
+    mata: lsl_bfix  = `n_cxias' + 1 + (`n_c2xias' + 1) * (lsl_ufunc != "boxcox") + lsl_nlei + `n_lx1ias' + 1 + (`n_l2x1ias' + 1) * (lsl_ufunc != "boxcox") + ///
+                      (`n_lx2ias' + 1 + (`n_l2x2ias' + 1) * (lsl_ufunc != "boxcox") + 1) * (lsl_nlei == 2) + `n_indeps'
+    
+    mata: lsl_iwage = 1         + lsl_bfix
+    mata: lsl_iheck = lsl_iwage + lsl_bwage
+    mata: lsl_ilam  = lsl_iheck + lsl_bheck
+    mata: lsl_irnd  = lsl_ilam  + lsl_blam
+    
+    mata: lsl_iC  = `n_cxias' + 1
+    mata: lsl_iL1 = `n_cxias' + 1 + `n_c2xias' + 1 + lsl_nlei + `n_lx1ias' + 1
+    mata: lsl_iL2 = lsl_iL1 + `n_l2x1ias' + 1 + `n_lx2ias' + 1
+    
+    mata: lsl_Bfix  = lsl_B[|1\lsl_bfix|]
+    mata: lsl_Bwage = (lsl_bwage > 0 ? lsl_B[|lsl_iwage\lsl_iwage + lsl_bwage - 1|] : J(0, 0, 0))     // Wage coefficients
+    mata: lsl_Bsig  = (lsl_bheck > 0 ? lsl_B[lsl_iheck]                             : J(0, 0, 0))     //   Cholesky factor of wage variance
+    mata: lsl_Brnd  = (lsl_rvars > 0 ? lsl_B[|lsl_irnd\lsl_irnd + lsl_brnd - 1|]    : J(0, 0, 0))     // Get auxiliary random coefficients
+    
+    
+    //
     // Tax regression
     //
 
@@ -1731,7 +1775,11 @@ program define lslogit_p, rclass
     else if ("`e(ufunc)'" == "boxcox") {    // Box-Cox utility
         mata: lsl_lC  = lsl_B[lsl_ilam]
         mata: lsl_lL1 = lsl_B[lsl_ilam + 1]
-        mata: lsl_lL2 = (lsl_nlei == 2 ? lsl_B[ilam + 2] : 0)
+        mata: lsl_lL2 = (lsl_nlei == 2 ? lsl_B[lsl_ilam + 2] : 0)
+        mata: lsl_B
+        mata: lsl_Bfix
+        mata: "lsl_lC", "lsl_lL1", "lsl_lL2"
+        mata: lsl_lC, lsl_lL1, lsl_lL2
         mata: lsl_X   = (lsl_boxcox(lsl_C, lsl_lC)   :* (lsl_CX,  lsl_boxcox(lsl_L1, lsl_lL1),   lsl_boxcox(lsl_L2, lsl_lL2)),    ///
                          lsl_boxcox(lsl_L1, lsl_lL1) :*  lsl_LX1,                                                                 ///
                          lsl_boxcox(lsl_L2, lsl_lL2) :*  lsl_LX2, lsl_boxcox(lsl_L1, lsl_lL1) :* lsl_boxcox(lsl_L2, lsl_lL2), lsl_Xind)
@@ -1740,32 +1788,6 @@ program define lslogit_p, rclass
     // Generate Halton sequences
     local R_rvars = `rvars' + `e(wagep)' * `n_leisure' + !inlist("`e(taxreg_rmse)'", "", ".")
     mata: lsl_R = (`R_rvars' > 0 ? invnormal(halton(lsl_groups * lsl_draws, `R_rvars', 1 + lsl_burn)) : J(`nobs', 0, 0))
-    
-    
-    //
-    // Build coefficients vector
-    //
-    
-    mata: lsl_bwage = (`n_heckvars' != 0) + `n_heckvars'
-    mata: lsl_bheck = (lsl_wagecorr > 0) + lsl_wagecorr
-    mata: lsl_brnd  = (lsl_corr == 1 ? lsl_rvars * (lsl_rvars + 1) / 2 : lsl_rvars)
-    mata: lsl_blam  = (lsl_ufunc == "boxcox" ? 1 + lsl_nlei : 0)
-    mata: lsl_bfix  = `n_cxias' + 1 + `n_c2xias' + 1 + lsl_nlei + `n_lx1ias' + 1 + (`n_l2x1ias' + 1) * (lsl_ufunc != "boxcox") + ///
-                      (`n_lx2ias' + 1 + (`n_l2x2ias' + 1) * (lsl_ufunc != "boxcox") + 1) * (lsl_nlei == 2) + `n_indeps'
-    
-    mata: lsl_iwage = 1         + lsl_bfix
-    mata: lsl_iheck = lsl_iwage + lsl_bwage
-    mata: lsl_ilam  = lsl_iheck + lsl_bheck
-    mata: lsl_irnd  = lsl_ilam  + lsl_blam
-    
-    mata: lsl_iC  = `n_cxias' + 1
-    mata: lsl_iL1 = `n_cxias' + 1 + `n_c2xias' + 1 + lsl_nlei + `n_lx1ias' + 1
-    mata: lsl_iL2 = lsl_iL1 + `n_l2x1ias' + 1 + `n_lx2ias' + 1
-    
-    mata: lsl_Bfix  = lsl_B[|1\lsl_bfix|]
-    mata: lsl_Bwage = (lsl_bwage > 0 ? lsl_B[|lsl_iwage\lsl_iwage + lsl_bwage - 1|] : J(0, 0, 0))     // Wage coefficients
-    mata: lsl_Bsig  = (lsl_bheck > 0 ? lsl_B[lsl_iheck]                             : J(0, 0, 0))     //   Cholesky factor of wage variance
-    mata: lsl_Brnd  = (lsl_rvars > 0 ? lsl_B[|lsl_irnd\lsl_irnd + lsl_brnd - 1|]    : J(0, 0, 0))     // Get auxiliary random coefficients
     
     
     //
