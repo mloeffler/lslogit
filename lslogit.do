@@ -944,8 +944,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
         //Wobs = lsl_Y :* (log(lsl_Hwage) :< .)
         
         // Redisuals
-        //LnWres    = lsl_Wobs :* (log(lsl_Hwage) :- Hwage)                           // Including wage equation
-        LnWresPur = lsl_Wobs :* (log(lsl_Hwage) :- cross(lsl_WageVars', Bwage'))   // Just wage equation residuals
+        LnWresPur = lsl_Wobs :* (log(lsl_Hwage) :- Hwage)
         
         // No correlation stuff? Calculate wage variance
         if (!lsl_wagecorr) {
@@ -958,7 +957,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
         }
         
         // Predict wages
-        Hwage = exp(Hwage :+ SigmaW^2/2) :* (lsl_Hours[|1,1\.,1|] :!= 0)
+        Hwage = exp(Hwage :+ (SigmaW^2 / 2)) :* (lsl_Hours[|1,1\.,1|] :!= 0)
     }
     // No joint estimation, get initial data
     else {
@@ -1058,7 +1057,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                 //   - can't be negative!
                 //   - add random draw
                 //   - normalize for Box-Cox specification
-                C = rowmax((cross(TaxregX', lsl_TaxregB') :+ (lsl_taxreg_rmse :* lsl_R[iRV,cols(lsl_R)]), J(c, 1, 1))) :/ lsl_boxcc
+                C = rowmax((cross(TaxregX', lsl_TaxregB') :+ lsl_taxreg_rmse :* lsl_R[iRV,cols(lsl_R)], J(c, 1, 1))) :/ lsl_boxcc
                 
                 // Build matrix with independent variables
                 if      (lsl_ufunc == "tran") Xnr = (log(C)  :* (CX,  log(C)  :* C2X,   log(L1),   log(L2)),
@@ -1127,7 +1126,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                     DMdH = (lsl_Days[|i,1\e,1|] :/ 12 :/ 7) :* lsl_Hours[|i,1\e,.|]
                     
                     if (lsl_wagecorr) {
-                        DWdBw     = Wn :* (lsl_WageVars[|i,1\e,.|] :- lsl_residanchor :* Bsig :* colsum(lsl_Wobs[|i,1\e,1|] :* lsl_WageVars[|i,1\e,.|]))
+                        DWdBw     = Wn :* (lsl_WageVars[|i,1\e,.|] :- lsl_residanchor :* Bsig :* cross(lsl_Wobs[|i,1\e,1|], lsl_WageVars[|i,1\e,.|]))
                         DWdBsig   = Wn :* (lsl_R[iRV,nRV] :+ Bsig)
                         if      (lsl_wagecorr == 1) DWdBwcorr = Wn :* (rowsum(lsl_R[|iRV,1\iRV,rvars|] :* ((lsl_Rvars :== iC) :+ (lsl_Rvars :== iL1))') :+ B[iheck + 1])
                         else if (lsl_wagecorr == 2) DWdBwcorr = cross(Wn', ((rowsum(lsl_R[|iRV,1\iRV,rvars|] :* (lsl_Rvars :== iC )') :+ B[iheck + 1]),
@@ -1136,6 +1135,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                         DWdBw = Wn :* (lsl_WageVars[|i,1\e,.|] :- cross(LnWresPur, lsl_WageVars) :/ (colsum(lsl_Wobs) - bwage))
                         if (lsl_wagep) DWdBw = DWdBw :- Wn :* (cross((lsl_Wpred[|i,1\e,.|] :* lsl_R[iRV,cols(lsl_R) - 1] :/ SigmaW)', cross(LnWresPur, lsl_WageVars) :/ (colsum(lsl_Wobs) - bwage))
                                                                :+ lsl_residanchor :* SigmaW :* colsum(lsl_Wpred[|i,1\e,.|] :* lsl_Wobs[|i,1\e,1|] :* lsl_WageVars[|i,1\e,.|]))
+                        DWdBsig   = J(c, 0, 0)
                         DWdBwcorr = J(c, 0, 0)
                     }
                     
@@ -1278,7 +1278,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                 }
             }
         }
-
+        
         // Prevent likelihood from becoming exactly zero
         lsum = max((lsum, 1e-25))
         
@@ -1293,8 +1293,8 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
         lnf = lnf + cross(lsl_Wobs, log(normalden(LnWresPur :/ SigmaW)) :- log(SigmaW))
         if (todo >= 1) {
             if (lsl_wagecorr) {
-                G[|iwage\iwage + bwage - 1|] = G[|iwage\iwage + bwage - 1|] :+ cross(lsl_Wobs, lsl_WageVars :* LnWresPur :/ SigmaW:^2)
-                G[|iheck\iheck + lsl_wagecorr|] = G[|iheck\iheck + lsl_wagecorr|] :+ cross(lsl_Wobs, LnWresPur:^2 :/ SigmaW:^4 :- 1 :/ SigmaW:^2) :* B[|iheck\iheck + lsl_wagecorr|]
+                G[|iwage\iwage + bwage - 1|]    = G[|iwage\iwage + bwage - 1|]    :+  cross(LnWresPur, lsl_WageVars :/ SigmaW:^2)
+                G[|iheck\iheck + lsl_wagecorr|] = G[|iheck\iheck + lsl_wagecorr|] :+ (cross(LnWresPur, LnWresPur)   :/ SigmaW:^4 :- colsum(lsl_Wobs :/ SigmaW:^2)) :* B[|iheck\iheck + lsl_wagecorr|]
             } else {
                 G[|iwage\iwage + bwage - 1|] = G[|iwage\iwage + bwage - 1|] :+
                                                cross(LnWresPur, lsl_WageVars) :/ SigmaW:^2 :-
