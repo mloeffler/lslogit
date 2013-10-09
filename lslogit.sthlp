@@ -64,11 +64,6 @@
 {synopt:{opt rand:vars(coeflist)}}indices of random coefficients{p_end}
 {synopt:{opt corr}}correlation between random coefficients{p_end}
 
-{syntab:Wage estimation}
-{synopt:{opth hw:age(varlist)}}hourly wage rate(s){p_end}
-{synopt:{opth heckm:an(varlist)}}wage equation{p_end}
-{synopt:{opth select(varlist)}}selection equation{p_end}
-
 {syntab:Wage prediction}
 {synopt:{opth wagep:red(varlist)}}integrate out wage prediction error(s){p_end}
 {synopt:{opth day:s(varname)}}days per year{p_end}
@@ -77,6 +72,11 @@
 {synopt:{opt taxr:eg(name)}}estimates of the tax regrssion{p_end}
 {synopt:{opth tria1(varlist)}}interactions with earnings (person 1){p_end}
 {synopt:{opth tria2(varlist)}}interactions with earnings (person 2){p_end}
+
+{syntab:Other options}
+{synopt:{opt from(ml_init_args)}}specify initial values{p_end}
+{synopt:{opt q:uiet}}suppress additional model information{p_end}
+{synopt:{opt v:erbose}}show details on estimation setup{p_end}
 {synoptline}
 {p2colreset}{...}
 {p 4 6 2}
