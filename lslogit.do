@@ -53,12 +53,12 @@ program define lslogit_Replay
         if      ("`e(ufunc)'" == "quad")   local footnote "`footnote' - Quadratic utility function"
         else if ("`e(ufunc)'" == "tran")   local footnote "`footnote' - Translog utility function"
         else if ("`e(ufunc)'" == "boxcox") local footnote "`footnote' - Box-Cox utility function"
-        if ("`e(randvars)'" != "")         local footnote "`footnote'" _newline "       - Random coefficients (`e(randvars)')"
-        if ("`e(corr)'" == "1")            local footnote "`footnote' with correlation"
-        if ("`e(wagep)'" == "1")           local footnote "`footnote'" _newline "       - Wage prediction error integrated out"
-        if ("`e(draws)'" != "1")           local footnote "`footnote'" _newline "       - Approximated using `e(draws)' Halton sequences"
-        if ("`e(wagevars)'" != "")         local footnote "`footnote'" _newline "       - Joint labor supply and wage estimation"
-        if ("`e(wagecorr)'" == "1")        local footnote "`footnote' with correlation"
+        if ("`e(randvars)'"   != "")       local footnote "`footnote'" _newline "       - Random coefficients (`e(randvars)')"
+        if ("`e(corr)'"       == "1")      local footnote "`footnote' with correlation"
+        if ("`e(wagep)'"      == "1")      local footnote "`footnote'" _newline "       - Wage prediction error integrated out"
+        if ("`e(draws)'"      != "1")      local footnote "`footnote'" _newline "       - Approximated using `e(draws)' Halton sequences"
+        if ("`e(wagevars)'"   != "")       local footnote "`footnote'" _newline "       - Joint labor supply and wage estimation"
+        if ("`e(wagecorr)'"   == "1")      local footnote "`footnote' with correlation"
         if ("`e(density)'"    != "")       local footnote "`footnote'" _newline "       - Accounted for choice density"
     }
     
@@ -714,7 +714,7 @@ program define lslogit_Estimate, eclass
         ereturn scalar taxreg_rmse = `taxreg_rmse'
     }
     if ("`wagesigma'" != "") ereturn local wagesigma `wagesigma'
-    if ("`wagevars'" != "")  ereturn local wagevars  `wagevars'
+    if ("`wagevars'"  != "") ereturn local wagevars  `wagevars'
     if ("`wagedraws'" != "") ereturn local wagedraws `wagedraws'
     if ("`density'"   != "") ereturn local density   `density'
     
@@ -1172,7 +1172,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                         //                                                     :+ SigmaW :* lsl_Wobs[|i,1\e,1|] :* lsl_WageVars[|i,1\e,.|])
                         //else
                         if (lsl_wagep) DWdBw = DWdBw :- Wn :* (cross((lsl_Wpred[|i,1\e,.|] :* lsl_R[iRV,cols(lsl_R) - 1] :/ SigmaW)', cross(LnWresPur, lsl_WageVars) :/ (colsum(lsl_Wobs) - bwage))
-                                                               :+ lsl_residanchor :* SigmaW :* colsum(lsl_Wpred[|i,1\e,.|] :* lsl_Wobs[|i,1\e,1|] :* lsl_WageVars[|i,1\e,.|]))
+                                                                    :+ lsl_residanchor :* SigmaW :* colsum(lsl_Wpred[|i,1\e,.|] :* lsl_Wobs[|i,1\e,1|] :* lsl_WageVars[|i,1\e,.|]))
                         DWdBsig   = J(c, 0, 0)
                         DWdBwcorr = J(c, 0, 0)
                     }
@@ -1508,7 +1508,7 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
                 
                 // Calculate monthly earnings
                 Mwage = (lsl_Days[|i\e|] :/ 12 :/ 7) :* lsl_Hours[|i,1\e,.|] :* Wn
-
+                
                 // Round monthly earnings if enabled
                 if (lsl_round) Mwage = round(Mwage, 0.01)
                 
@@ -1526,7 +1526,7 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
                 
                 // Predict disposable income (can't be negative!)
                 C = rowmax((cross(TaxregX', lsl_TaxregB') :+ (lsl_taxreg_rmse :* lsl_R[iRV,cols(lsl_R)]), J(c, 1, 1))) :/ lsl_boxcc
-
+                
                 // Build matrix with independent variables
                 if      (lsl_ufunc == "tran") Xnr = (log(C)  :* (CX,  log(C)  :* C2X,   log(L1),   log(L2)),
                                                      log(L1) :* (LX1, log(L1) :* L2X1),
