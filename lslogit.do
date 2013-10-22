@@ -59,6 +59,7 @@ program define lslogit_Replay
         if ("`e(draws)'" != "1")           local footnote "`footnote'" _newline "       - Approximated using `e(draws)' Halton sequences"
         if ("`e(wagevars)'" != "")         local footnote "`footnote'" _newline "       - Joint labor supply and wage estimation"
         if ("`e(wagecorr)'" == "1")        local footnote "`footnote' with correlation"
+        if ("`e(density)'"    != "")       local footnote "`footnote'" _newline "       - Accounted for choice density"
     }
     
     // Display output
@@ -86,7 +87,8 @@ program define lslogit_Estimate, eclass
                                                    WAGEVars(varlist numeric fv) wagecorr noanchor TECHnique(string)         ///
                                                    round Quiet Verbose lambda(real 0) force(varname numeric)                ///
                                                    difficult trace search(name) iterate(integer 100) method(name)           ///
-                                                   gradient hessian debug Level(integer `c(level)') from(string)]
+                                                   gradient hessian debug Level(integer `c(level)') from(string)            ///
+                                                   DENsity(varname numeric) WAGEDraws(varname numeric)]
     
     /* INITIALIZE ESTIMATOR
      */
@@ -94,7 +96,7 @@ program define lslogit_Estimate, eclass
     // Mark the estimation sample
     marksample touse
     markout `touse' `varlist' `group' `consumption' `leisure' `cx' `lx1' `lx2' `c2x' `l2x1' `l2x2'  ///
-                    `indeps' `wagepred' `days' `tria1' `tria2' `wagevars'
+                    `indeps' `wagepred' `days' `tria1' `tria2' `wagevars' `density' `wagedraws'
     
     // Check for observations
     qui count if `touse'
@@ -168,6 +170,23 @@ program define lslogit_Estimate, eclass
     // Check dude force settings
     if (`lambda' != 0 & "`force'" == "") {
         di in r "option force() required when marginal utility is contrained"
+        exit 498
+    }
+    
+    // Check choice density settings
+    if ("`density'" != "") {
+        qui count if `density' <= 0
+        if (r(N) > 0) {
+            di in r "Choice density contains values smaller or equal to zero."
+            exit 498
+        }
+    }
+    if ("`wagevars'" == "" & "`wagedraws'" != "") {
+        di in r "What shall we do with the drunken wagedraws? Only useful for joint estimation."
+        exit 498
+    }
+    if ("`wagedraws'" != "" & ("`wagepred'" != "" | "`wagecorr'" != "")) {
+        di in r "You can either use wagepred/wagecorr or wagedraws. It's up to you."
         exit 498
     }
     
@@ -496,6 +515,7 @@ program define lslogit_Estimate, eclass
     mata: lsl_Hours       = `totaltime' :- (lsl_L1, lsl_L2) :* lsl_boxcl                     // Hypothetical hours (caution: Box-Cox normalization!)
     mata: lsl_wagecorr    = `corrBW'                                                         // Correlate wage rates and preferences?
     mata: lsl_residanchor = ("`anchor'" != "noanchor") & (`wagep' == 1)                      // Use actual residiuals for folks with observed wages
+    mata: lsl_Wagedraws   = ("`wagedraws'" != "" ? st_data(., "`wagedraws'") : J(`nobs', 0, 0))
     
     
     //
@@ -530,6 +550,7 @@ program define lslogit_Estimate, eclass
     mata: lsl_J = (lsl_J, 1 :+ lsl_J[.,2] :- lsl_J[.,1])
     mata: lsl_groups = rows(lsl_J)
     mata: st_numscalar("n_groups", lsl_groups)
+    mata: lsl_Dens = ("`density'" != "" ? st_data(., "`density'") : J(`nobs', 1, 1))    // Density of offered choices
     
     
     //
@@ -559,6 +580,7 @@ program define lslogit_Estimate, eclass
     mata: st_local("SigmaW", strofreal((lsl_joint ? sqrt(cross(lsl_Wobs :* log(lsl_Hwage), log(lsl_Hwage)) / (colsum(lsl_Wobs) - `n_wagevars' - 1)) : 0)))
     mata: st_local("ll_0", strofreal(- colsum(cross(lsl_Weight[lsl_J[.,1]], log(lsl_J[.,3])))          ///
                                      + (lsl_joint ? cross(lsl_Weight :* lsl_Wobs, log(normalden(log(lsl_Hwage) :/ `SigmaW')) :- log(`SigmaW')) : 0)))
+    if ("`density'" != "") di as text "(Note: Pseudo-R2 buggy when using choice densities)
     
     // Restore data
     restore
@@ -693,6 +715,8 @@ program define lslogit_Estimate, eclass
     }
     if ("`wagesigma'" != "") ereturn local wagesigma `wagesigma'
     if ("`wagevars'" != "")  ereturn local wagevars  `wagevars'
+    if ("`wagedraws'" != "") ereturn local wagedraws `wagedraws'
+    if ("`density'"   != "") ereturn local density   `density'
     
     // Display some coefficients as auxiliary
     ereturn scalar k_aux = ("`ufunc'" == "boxcox") * (1 + `n_leisure') +                    ///
@@ -751,6 +775,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     external real matrix    lsl_J               // Panel setup data
     external real matrix    lsl_X               // Right hand side variables
     external real colvector lsl_Weight          // Group weights
+    external real colvector lsl_Dens            // Density of choice
     
     external real scalar    lsl_draws           // Number of random draws
     external real matrix    lsl_R               //   Halton sequences
@@ -763,6 +788,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     external real matrix    lsl_WageVars        //   Right hand side variables
     external real scalar    lsl_wagecorr        //   Number of covariances between wages and leisure preferences?
     external real scalar    lsl_residanchor
+    external real matrix    lsl_Wagedraws
     
     external real scalar    lsl_wagep           // Wage Prediction Error?
     external real matrix    lsl_Wpred           //   Prediction dummies
@@ -958,6 +984,14 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
         
         // Predict wages
         Hwage = exp(Hwage :+ (SigmaW^2 / 2)) :* (lsl_Hours[|1,1\.,1|] :!= 0)
+        
+        // Use random wage draws
+        if (cols(lsl_Wagedraws) > 0) {
+            real colvector Wagedraws
+            Wagedraws = invnormal(runiform(nobs, 1))
+            Hwage = Hwage :* exp(SigmaW :* lsl_Wagedraws :* (lsl_Wobs :== 0) :+ LnWresPur)
+            lsl_Dens = normalden(lsl_Wagedraws) :* (lsl_Wobs :== 0) :+ lsl_Wobs :* normalden(LnWresPur, SigmaW)
+        }
     }
     // No joint estimation, get initial data
     else {
@@ -1076,7 +1110,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
             /* Calculate utility levels */
 
             // Calculate choice probabilities
-            Unr = cross(Xnr', Beta')                                    // Utility (choices in rows, draws in columns)
+            Unr = cross(Xnr', Beta') :- log(lsl_Dens[|i,1\e,.|])        // Utility (choices in rows, draws in columns)
             Enr = exp(Unr :+ colmin(-mean(Unr) \ 700 :- colmax(Unr)))   // Standardize to avoid missings
             Pnr = Enr :/ colsum(Enr)                                    // Probabilities
             
@@ -1250,14 +1284,6 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                                                  YmPn_D2UdBdwage, YmPn_D2Udwage2  , YmPn_D2UdBrdwage' \
                                                  YmPn_D2UdBdBr  , YmPn_D2UdBrdwage, YmPn_D2UdBr2))
                 }
-                
-                /*
-                "YmPn_D2Udx2: cols, rows"
-                cols(YmPn_D2Udx2), rows(YmPn_D2Udx2)
-                
-                "H2sum: cols, rows"
-                cols(cross(cross(Yn, DUdx) :- cross(Pnr, DUdx), cross(YmPn, DUdx)) :- cross(Pnr :* DUdx, DUdx :- cross(Pnr, DUdx))), rows(cross(cross(Yn, DUdx) :- cross(Pnr, DUdx), cross(YmPn, DUdx)) :- cross(Pnr :* DUdx, DUdx :- cross(Pnr, DUdx)))
-                */
                 
                 // Total second derivatives
                 H1sum = H1sum :+ pni :* (cross(Yn, DUdx) :- cross(Pnr, DUdx))
@@ -1434,7 +1460,7 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
         Xnr = lsl_X[|i,1\e,.|]
         
         // Fetch needed right hand side parts
-        if (lsl_wagep == 1 | getdudes == 1) {
+        if (lsl_wagep == 1 | getdudes == 1 | lsl_joint) {
             C    =  lsl_C[|i\e|]             // Get consumption from data
             CX   = (cols(lsl_CX)   > 0 ?   lsl_CX[|i,1\e,.|] : J(c, 0, 0))
             C2X  = (cols(lsl_C2X)  > 0 ?  lsl_C2X[|i,1\e,.|] : J(c, 0, 0))
@@ -1568,7 +1594,7 @@ cap program drop lslogit_p
  */
 program define lslogit_p, rclass
     version 12
-    syntax newvarlist(min=1 max=4) [if] [in] [, pc1 xb DUdes WAGEs INCrease(numlist min=1 max=2)]
+    syntax newvarlist(min=1 max=4) [if] [in] [, pc1 xb DUdes WAGEs INCrease(numlist min=1 max=2) wrand(varname numeric)]
     
     
     //
@@ -1772,6 +1798,7 @@ program define lslogit_p, rclass
     // Generate Halton sequences
     local R_rvars = `rvars' + `e(wagep)' * `n_leisure' + !inlist("`e(taxreg_rmse)'", "", ".")
     mata: lsl_R = (`R_rvars' > 0 ? invnormal(halton(lsl_groups * lsl_draws, `R_rvars', 1 + lsl_burn)) : J(`nobs', 0, 0))
+    mata: randwage = ("`wrand'" != "" ? st_data(., "`wrand'") : J(`nobs', 1, 0))
     
     
     //
@@ -1803,7 +1830,7 @@ program define lslogit_p, rclass
         return scalar sigma_w1 = `r(sigma_w1)'
         
         // Replace hourly wage rates
-        mata: lsl_Hwage = exp(lsl_LnWageHat :+ lsl_SigmaW:^2/2) :* (lsl_Hours[|1,1\.,1|] :!= 0)
+        mata: lsl_Hwage = exp(lsl_LnWageHat :+ lsl_SigmaW:^2/2 :+ randwage :* lsl_SigmaW) :* (lsl_Hours[|1,1\.,1|] :!= 0)
     }
     else mata: mata: lsl_CholW = diag(lsl_Sigma)
     
