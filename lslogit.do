@@ -546,9 +546,9 @@ program define lslogit_Estimate, eclass
     // Group level stuff
     //
     
-    mata: lsl_J = panelsetup(st_data(., "`group'"), 1)
-    mata: lsl_J = (lsl_J, 1 :+ lsl_J[.,2] :- lsl_J[.,1])
-    mata: lsl_groups = rows(lsl_J)
+    mata: lsl_J = panelsetup(st_data(., "`group'"), 1)                                  // Separate households
+    mata: lsl_J = (lsl_J, 1 :+ lsl_J[.,2] :- lsl_J[.,1])                                // Add column with number of choices
+    mata: lsl_groups = rows(lsl_J)                                                      // Number of groups
     mata: st_numscalar("n_groups", lsl_groups)
     mata: lsl_Dens = ("`density'" != "" ? st_data(., "`density'") : J(`nobs', 1, 1))    // Density of offered choices
     
@@ -1166,7 +1166,11 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                         else if (lsl_wagecorr == 2) DWdBwcorr = cross(Wn', ((rowsum(lsl_R[|iRV,1\iRV,rvars|] :* (lsl_Rvars :== iC )') :+ B[iheck + 1]),
                                                                             (rowsum(lsl_R[|iRV,1\iRV,rvars|] :* (lsl_Rvars :== iL1)') :+ B[iheck + 2])))
                     } else {
+                        //if (cols(lsl_Wagedraws) > 0) Wn = Hwage :* SigmaW :* exp(lsl_Wagedraws :* (lsl_Wobs :== 0) :+ LnWresPur :* lsl_Wobs)
                         DWdBw = Wn :* (lsl_WageVars[|i,1\e,.|] :- cross(LnWresPur, lsl_WageVars) :/ (colsum(lsl_Wobs) - bwage))
+                        //if (cols(lsl_Wagedraws) > 0) DWdBw = DWdBw :- Wn :* (cross((lsl_Wagedraws[|i,1\e,.|] :* (lsl_Wobs[|i,1\e,.|] :== 0) :+ LnWresPur[|i,1\e,.|])', cross(LnWresPur, lsl_WageVars) :/ (colsum(lsl_Wobs) - bwage) :/ SigmaW)
+                        //                                                     :+ SigmaW :* lsl_Wobs[|i,1\e,1|] :* lsl_WageVars[|i,1\e,.|])
+                        //else
                         if (lsl_wagep) DWdBw = DWdBw :- Wn :* (cross((lsl_Wpred[|i,1\e,.|] :* lsl_R[iRV,cols(lsl_R) - 1] :/ SigmaW)', cross(LnWresPur, lsl_WageVars) :/ (colsum(lsl_Wobs) - bwage))
                                                                :+ lsl_residanchor :* SigmaW :* colsum(lsl_Wpred[|i,1\e,.|] :* lsl_Wobs[|i,1\e,1|] :* lsl_WageVars[|i,1\e,.|]))
                         DWdBsig   = J(c, 0, 0)
@@ -1480,7 +1484,6 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
                 BcL2 = lsl_boxcox(L2, lsl_lL2)
             }
         }
-        
         wp   = (lsl_wagep & sum(lsl_Wpred[|i,1\e,.|]) > 0)
         nrep = (lsl_rvars > 0 | wp ? lsl_draws : 1)
         
@@ -1494,7 +1497,6 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
         for (r = 1; r <= nrep; r++) {
             // Indicates the active Halton sequence
             iRV  = lsl_draws * (n - 1) + r
-            
             if (wp | lsl_joint) {
             
                 //
@@ -1509,7 +1511,6 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
 
                 // Round monthly earnings if enabled
                 if (lsl_round) Mwage = round(Mwage, 0.01)
-                
                 
                 //
                 // Predict disposable income
