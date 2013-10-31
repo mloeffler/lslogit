@@ -88,7 +88,7 @@ program define lslogit_Estimate, eclass
                                                    round Quiet Verbose lambda(real 0) force(varname numeric)                ///
                                                    difficult trace search(name) iterate(integer 100) method(name)           ///
                                                    gradient hessian debug Level(integer `c(level)') from(string)            ///
-                                                   DENsity(varname numeric) WAGEDraws(varname numeric)]
+                                                   DENsity(varname numeric) WAGEDraws(varname numeric) RANDSAMple]
     
     /* INITIALIZE ESTIMATOR
      */
@@ -287,7 +287,7 @@ program define lslogit_Estimate, eclass
     if (`wagep_force' == 1) di as text "(you selected option 'wagecorr', so wage prediction errors will be integrated out anyway)"
     
     // No need to take random draws
-    if (`wagep' == 0 & "`randvars'" == "") local draws = 1
+    if (`wagep' == 0 & "`randvars'" == "" & "`randsample'" == "") local draws = 1
     
     // Tax regression or tax benefit calculator needed
     local taxreg_rmse = 0
@@ -571,6 +571,12 @@ program define lslogit_Estimate, eclass
     mata: lsl_corr  = ("`corr'" != "")                                                                  // Random coefficients correlated?
     mata: lsl_R     = (`rvars' > 0 ? invnormal(halton(lsl_groups * lsl_draws, `rvars', 1 + lsl_burn))   ///
                                    : J(`nobs', 0, 0))    // Halton sequences
+    mata: lsl_randsample = ("`randsample'" != "")
+    if ("`randsample'" != "") {
+        mata: lsl_WDRW = invnormal(runiform(`nobs', lsl_draws))
+        mata: lsl_WPDF = normalden(lsl_WDRW)
+    }
+    else mata: lsl_WPDF = J(`nobs', lsl_draws, 1)
     
     
     //
@@ -789,6 +795,9 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     external real scalar    lsl_wagecorr        //   Number of covariances between wages and leisure preferences?
     external real scalar    lsl_residanchor
     external real matrix    lsl_Wagedraws
+    external real matrix    lsl_randsample
+    external real matrix    lsl_WPDF
+    external real matrix    lsl_WDRW
     
     external real scalar    lsl_wagep           // Wage Prediction Error?
     external real matrix    lsl_Wpred           //   Prediction dummies
@@ -1048,6 +1057,10 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
         if (lsl_residanchor & lsl_joint & wagep & colsum(lsl_Wobs[|i,1\e,1|]) == 1) {
             lsl_R[|lsl_draws * (n - 1) + 1,cols(lsl_R) - 1\lsl_draws * (n - 1) + lsl_draws,cols(lsl_R) - 1|] = J(lsl_draws, 1, colsum(LnWresPur[|i,1\e,1|]))
         }
+        if (lsl_randsample & lsl_joint) {
+            lsl_WDRW[|i,1\e,.|] = lsl_WDRW[|i,1\e,.|] :* (lsl_Wobs[|i,1\e,.|] :== 0) :+ LnWresPur[|i,1\e,1|] / SigmaW
+            lsl_WPDF[|i,1\e,.|] = normalden(lsl_WDRW[|i,1\e,.|])
+        }
         
         // Run by random draw
         for (r = 1; r <= lsl_draws; r++) {
@@ -1067,6 +1080,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                 
                 // Adjust wages with random draws if prediction enabled
                 if (lsl_wagep) Wn = Hwage[|i,1\e,.|] :* exp(cross((CholBW, CholW)', lsl_R[|iRV,1\iRV,cols(lsl_R) - 1|]')' :* lsl_Wpred[|i,1\e,.|])
+                if (lsl_randsample) Wn = Hwage[|i,1\e,.|] :* exp(cross((CholBW, CholW)', lsl_WDRW[|i,r\e,r|]')')
                 
                 // Calculate monthly earnings
                 Mwage = (lsl_Days[|i\e|] :/ 12 :/ 7) :* lsl_Hours[|i,1\e,.|] :* Wn
@@ -1110,7 +1124,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
             /* Calculate utility levels */
 
             // Calculate choice probabilities
-            Unr = cross(Xnr', Beta') :- log(lsl_Dens[|i,1\e,.|])        // Utility (choices in rows, draws in columns)
+            Unr = cross(Xnr', Beta') :- log(lsl_WPDF[|i,r\e,r|])        // Utility (choices in rows, draws in columns)
             Enr = exp(Unr :+ colmin(-mean(Unr) \ 700 :- colmax(Unr)))   // Standardize to avoid missings
             Pnr = Enr :/ colsum(Enr)                                    // Probabilities
             
