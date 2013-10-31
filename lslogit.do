@@ -84,7 +84,8 @@ program define lslogit_Estimate, eclass
                                                    TAXReg(name) tria1(varlist numeric) tria2(varlist numeric)               ///
                                                    WAGEPred(varlist numeric min=1 max=2) WAGESIGma(numlist min=1 max=2)     ///
                                                    RANDvars(numlist ascending) corr DRaws(integer 50) burn(integer 15)      ///
-                                                   WAGEVars(varlist numeric fv) wagecorr noanchor TECHnique(string)         ///
+                                                   WAGEVars(varlist numeric fv) wagecorr(numlist ascending)                 ///
+                                                   noanchor TECHnique(string)                                               ///
                                                    round Quiet Verbose lambda(real 0) force(varname numeric)                ///
                                                    difficult trace search(name) iterate(integer 100) method(name)           ///
                                                    gradient hessian debug Level(integer `c(level)') from(string)            ///
@@ -191,24 +192,31 @@ program define lslogit_Estimate, eclass
     }
     
     // Get variable count
-    local n_leisure  : word count `leisure'
-    local n_cxias    : word count `cx'
-    local n_lx1ias   : word count `lx1'
-    local n_lx2ias   : word count `lx2'
-    local n_c2xias   : word count `c2x'
-    local n_l2x1ias  : word count `l2x1'
-    local n_l2x2ias  : word count `l2x2'
-    local n_indeps   : word count `indeps'
-    local n_randvars : word count `randvars'
-    local n_wagep    : word count `wagepred'
-    local n_hwage    : word count `hwage'
-    local n_wagesig  : word count `wagesigma'
-    local n_taxrias1 : word count `tria1'
-    local n_taxrias2 : word count `tria2'
-    local n_wagevars : word count `wagevars'
+    local n_leisure   : word count `leisure'
+    local n_cxias     : word count `cx'
+    local n_lx1ias    : word count `lx1'
+    local n_lx2ias    : word count `lx2'
+    local n_c2xias    : word count `c2x'
+    local n_l2x1ias   : word count `l2x1'
+    local n_l2x2ias   : word count `l2x2'
+    local n_indeps    : word count `indeps'
+    local n_randvars  : word count `randvars'
+    local n_wagep     : word count `wagepred'
+    local n_hwage     : word count `hwage'
+    local n_wagesig   : word count `wagesigma'
+    local n_taxrias1  : word count `tria1'
+    local n_taxrias2  : word count `tria2'
+    local n_wagevars  : word count `wagevars'
+    local n_wcorrvars : word count `wagecorr'
     
     // Validate wage correlation settings
     if ("`wagecorr'" != "") {
+        foreach x of local wagecorr {
+            if (strpos(" `randvars' ", " `x' ") == 0) local randvars `randvars' `x'
+        }
+        local n_randvars  : word count `randvars'
+        
+        /*
         // Check random variables
         local iC  : word count `cx' _cons
         local iL1 : word count `cx' _cons `c2x' `leisure' `lx1' _cons
@@ -228,18 +236,21 @@ program define lslogit_Estimate, eclass
             exit 498
         }
         else local corr = "corr"                // Turn on preference correlation when wage correlation enabled
+        */
     }
+    /*
     else {
         local corrBW     = 0
         local wagecorrC  = 0
         local wagecorrL1 = 0
         local wagecorrL2 = 0
     }
+    */
     
     // Validate Wage Prediction Options
     if (`n_wagep' == 0) {
         // Joint estimation with correlation?
-        if (`corrBW' != 0) {
+        if (`n_wcorrvars' != 0) {
             local wagep       = 1               // Run integration over wage errors
             local n_wagep     = `n_leisure'     // Fake number of wage prediction indicators
             local wagep_force = 1               // Run wage error prediction for full sample
@@ -263,7 +274,7 @@ program define lslogit_Estimate, eclass
             }
             
             // Check that wage prediction error settings are in line with wage correlation settings
-            if (`corrBW' != 0) {
+            if (`n_wcorrvars' != 0) {
                 cap assert `wagep' == 1 if `touse'
                 if (_rc != 0) local wagep_force = 1
             }
@@ -420,7 +431,7 @@ program define lslogit_Estimate, eclass
 
                 // Save root mean squared error if wage variance is to be estimated and
                 //   add correlation terms if correlation between wages and preferences enabled
-                if ("`wagecorr'" != "") mat `init_wage' = `init_wage', e(rmse), J(1, `corrBW', 0.0001)
+                if ("`wagecorr'" != "") mat `init_wage' = `init_wage', e(rmse), J(1, `n_wcorrvars', 0.0001)
             }
         }
         
@@ -513,7 +524,9 @@ program define lslogit_Estimate, eclass
                                             : J(`nobs', 0, 0))                               // Wage variables
     mata: lsl_Days        = ("`days'" != "" ? st_data(., "`days'") : J(`nobs', 1, 365))      // Days of taxyear
     mata: lsl_Hours       = `totaltime' :- (lsl_L1, lsl_L2) :* lsl_boxcl                     // Hypothetical hours (caution: Box-Cox normalization!)
-    mata: lsl_wagecorr    = `corrBW'                                                         // Correlate wage rates and preferences?
+    mata: lsl_wagecorr    = `n_wcorrvars'                                                    // Correlate wage rates and preferences?
+    mata: st_local("wagecorr", invtokens(strofreal(sort(strtoreal(tokens("`wagecorr'"))', 1)')))
+    mata: lsl_Wcorrvars   = ("`wagecorr'" != "" ? strtoreal(tokens("`wagecorr'"))' : J(0, 1, 0))              // Wage correlation coefficients
     mata: lsl_residanchor = ("`anchor'" != "noanchor") & (`wagep' == 1)                      // Use actual residiuals for folks with observed wages
     mata: lsl_Wagedraws   = ("`wagedraws'" != "" ? st_data(., "`wagedraws'") : J(`nobs', 0, 0))
     
@@ -567,6 +580,7 @@ program define lslogit_Estimate, eclass
     
     mata: lsl_draws = strtoreal(st_local("draws"))                                                      // Number of draws
     mata: lsl_burn  = strtoreal(st_local("burn"))                                                       // Number of draws to burn
+    mata: st_local("randvars", invtokens(strofreal(sort(strtoreal(tokens("`randvars'"))', 1)')))
     mata: lsl_Rvars = ("`randvars'" != "" ? strtoreal(tokens("`randvars'"))' : J(0, 1, 0))              // Random coefficients
     mata: lsl_corr  = ("`corr'" != "")                                                                  // Random coefficients correlated?
     mata: lsl_R     = (`rvars' > 0 ? invnormal(halton(lsl_groups * lsl_draws, `rvars', 1 + lsl_burn))   ///
@@ -618,9 +632,14 @@ program define lslogit_Estimate, eclass
         // Correlation with preferences?
         if ("`wagecorr'" != "") {
             local eq_wages `eq_wages' /l_W1_W1                          // Cholesky for Var(W1)
+            foreach x of local wagecorr {
+                local eq_wages `eq_wages' /l_`x'_W1
+            }
+            /*
             if (`wagecorrC'  == 1) local eq_wages `eq_wages' /l_C_W1    // Cholesky for Cov(W1, C)
             if (`wagecorrL1' == 1) local eq_wages `eq_wages' /l_L1_W1   // Cholesky for Cov(W1, L1)
             if (`wagecorrL2' == 1) local eq_wages `eq_wages' /l_L2_W2   // Cholesky for Cov(W2, L2) -- BUGGY!!
+            */
         }
 
         // Add wage estimates to initial values
@@ -639,9 +658,14 @@ program define lslogit_Estimate, eclass
     // Random coefficients?
     if (`n_randvars' > 0) {
         local eq_rands
-        if ("`corr'" == "" & "`wagecorr'" == "") {
+        if ("`corr'" == "" /*& "`wagecorr'" == ""*/) {
+            /*
             forval i = 1/`n_randvars' {
                 local coef : word `i' of `randvars'
+                local eq_rands `eq_rands' /sd_`coef'
+            }
+            */
+            foreach coef of local randvars {
                 local eq_rands `eq_rands' /sd_`coef'
             }
             if ("`initopt'" != "" & "`init_from'" != "") mat `init_from' = (`init_from', J(1, `n_randvars', 0.0001))
@@ -680,7 +704,6 @@ program define lslogit_Estimate, eclass
     ereturn local ufunc          `ufunc'
     ereturn local wagep          `wagep'
     ereturn local joint          `joint'
-    ereturn local wagecorr       `corrBW'
     ereturn local residanchor = ("`anchor'" != "noanchor") & (`wagep' == 1)
     ereturn local draws          `draws'
     ereturn local burn           `burn'
@@ -712,6 +735,10 @@ program define lslogit_Estimate, eclass
         ereturn local randvars `randvars'
         ereturn local corr = cond("`corr'" != "", 1, 0)
     }
+    if (`n_wcorrvars' > 0) {         // Random coefficients correlated with wages
+        ereturn local wcorrvars `wagecorr'
+        ereturn local wagecorr = `n_wcorrvars'
+    }
     if ("`taxreg'" != "") {         // Tax regression
         ereturn matrix taxreg_b = `taxreg_from', copy
         if ("`taxreg_vars'" != "") ereturn local taxreg_vars `taxreg_vars'
@@ -727,7 +754,7 @@ program define lslogit_Estimate, eclass
     // Display some coefficients as auxiliary
     ereturn scalar k_aux = ("`ufunc'" == "boxcox") * (1 + `n_leisure') +                    ///
                            `n_randvars' * cond("`corr'" != "", (`n_randvars' + 1) / 2, 1) + ///
-                           ("`wagecorr'" != "") + `corrBW'
+                           ("`wagecorr'" != "") + `n_wcorrvars'
     
     // Pseudo R2 (may be misleading as it refers to the null-model, LR and p value refer to init values...)
     if ("`ll_0'" != "") ereturn scalar r2_p = 1 - e(ll)/`ll_0'
@@ -793,6 +820,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     external real matrix    lsl_Wobs            //   Wage rate observed?
     external real matrix    lsl_WageVars        //   Right hand side variables
     external real scalar    lsl_wagecorr        //   Number of covariances between wages and leisure preferences?
+    external real colvector lsl_Wcorrvars        //   Number of covariances between wages and leisure preferences?
     external real scalar    lsl_residanchor
     external real matrix    lsl_Wagedraws
     external real matrix    lsl_randsample
@@ -887,7 +915,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     // Number of coefficients
     b     = cols(B)                                                     // Total number
     bwage = cols(lsl_WageVars)                                          // Number of wage regression coefficients
-    bheck = (lsl_wagecorr > 0) + lsl_wagecorr                           // Number of additional wage related coefficients
+    bheck = (lsl_wagecorr > 0) + rows(lsl_Wcorrvars)                    // Number of additional wage related coefficients (correlation with preferences)
     brnd  = (lsl_corr  == 1 ? rvars * (rvars + 1) / 2 : rvars)          // Number of variance and covariance terms for random coefficients
     blam  = (lsl_ufunc == "boxcox" ? 1 + nlei : 0)                      // Number of Box-Cox transformation coefficients
     bfix  = ncons + nlx1 + nl2x1 + nlx2 + nl2x2 + (nlei == 2) + nxind   // Number of fixed preference coefficients
@@ -920,14 +948,16 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     
     // Build Cholesky matrix
     CholB  = (lsl_corr ? lowertriangle(invvech(Brnd')) : diag(Brnd))    // Cholesky factors of coefficients vector
-    CholBW = J(nlei, rvars, 0)                                          // Cholesky factors between coefficients and wages
+    CholBW = (lsl_wagecorr > 0 ? B[|iheck + 1\iheck + bheck - 1|] : J(1, 0, 0))     // Cholesky factors between coefficients and wages
     CholW  = diag(Bsig)                                                 // Cholesky factors of wage variances
     
     // DEBUG (works only for singles!)
     if (nlei == 1) {
+        /*
         if      (lsl_wagecorr == 1) CholBW = B[iheck + 1] :* ((lsl_Rvars :== iC) :+ (lsl_Rvars :== iL1))'
         else if (lsl_wagecorr == 2) CholBW = B[iheck + 1] :* (lsl_Rvars :== iC)' :+
                                              B[iheck + 2] :* (lsl_Rvars :== iL1)'
+        */
     }
     else if (lsl_wagecorr) "DEBUG!"
     // DEBUG
@@ -1174,11 +1204,17 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                     DMdH = (lsl_Days[|i,1\e,1|] :/ 12 :/ 7) :* lsl_Hours[|i,1\e,.|]
                     
                     if (lsl_wagecorr) {
-                        DWdBw     = Wn :* (lsl_WageVars[|i,1\e,.|] :- lsl_residanchor :* cross(lsl_Wobs[|i,1\e,1|], lsl_WageVars[|i,1\e,.|]))
-                        DWdBsig   = Wn :* ((1 - lsl_residanchor) * lsl_R[iRV,nRV] :+ Bsig)
+                        DWdBw     = Wn :* (lsl_WageVars[|i,1\e,.|] :- lsl_residanchor :* Bsig :* cross(lsl_Wobs[|i,1\e,1|], lsl_WageVars[|i,1\e,.|]) :/ SigmaW)
+                        DWdBsig   = Wn :* (Bsig + (colsum(lsl_Wobs[|i,1\e,1|]) == 0 | lsl_residanchor == 0) * lsl_R[iRV,nRV]
+                                                + (colsum(lsl_Wobs[|i,1\e,1|]) == 1 & lsl_residanchor == 1) * (  colsum(lsl_Wobs[|i,1\e,1|] :* LnWresPur[|i,1\e,.|]) / SigmaW
+                                                                                                               - colsum(lsl_Wobs[|i,1\e,1|] :* LnWresPur[|i,1\e,.|]) * Bsig^2 / SigmaW^3))
+                        //DWdBsig   = Wn :* ((1 - lsl_residanchor) * lsl_R[iRV,nRV] :+ Bsig)
+                        if (lsl_wagecorr > 0) DWdBwcorr = Wn :* (CholBW :+ lsl_R[|iRV,1\iRV,rvars|]' :- (colsum(lsl_Wobs[|i,1\e,1|]) == 1 & lsl_residanchor == 1) :* colsum(lsl_Wobs[|i,1\e,1|] :* LnWresPur[|i,1\e,.|]) :* Bsig :* CholBW :/ SigmaW^3)
+                        /*
                         if      (lsl_wagecorr == 1) DWdBwcorr = Wn :* (rowsum(lsl_R[|iRV,1\iRV,rvars|] :* ((lsl_Rvars :== iC) :+ (lsl_Rvars :== iL1))') :+ B[iheck + 1])
                         else if (lsl_wagecorr == 2) DWdBwcorr = cross(Wn', ((rowsum(lsl_R[|iRV,1\iRV,rvars|] :* (lsl_Rvars :== iC )') :+ B[iheck + 1]),
                                                                             (rowsum(lsl_R[|iRV,1\iRV,rvars|] :* (lsl_Rvars :== iL1)') :+ B[iheck + 2])))
+                        */
                     } else {
                         DWdBw = Wn :* (lsl_WageVars[|i,1\e,.|] :- cross(LnWresPur, lsl_WageVars) :/ (colsum(lsl_Wobs) - bwage))
                         if (lsl_wagep) DWdBw = DWdBw :- Wn :* ((colsum(lsl_Wobs[|i,1\e,1|]) == 0 | lsl_residanchor == 0) :* cross((lsl_Wpred[|i,1\e,.|] :* lsl_R[iRV,cols(lsl_R) - 1] :/ SigmaW)', cross(LnWresPur, lsl_WageVars) :/ (colsum(lsl_Wobs) - bwage))
