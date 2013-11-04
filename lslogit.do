@@ -952,14 +952,14 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     CholW  = diag(Bsig)                                                 // Cholesky factors of wage variances
     
     // DEBUG (works only for singles!)
+    /*
     if (nlei == 1) {
-        /*
         if      (lsl_wagecorr == 1) CholBW = B[iheck + 1] :* ((lsl_Rvars :== iC) :+ (lsl_Rvars :== iL1))'
         else if (lsl_wagecorr == 2) CholBW = B[iheck + 1] :* (lsl_Rvars :== iC)' :+
                                              B[iheck + 2] :* (lsl_Rvars :== iL1)'
-        */
     }
     else if (lsl_wagecorr) "DEBUG!"
+    */
     // DEBUG
     
     // Calculate wage variance (by Cholesky or just the coefficient)
@@ -1152,7 +1152,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
             
 
             /* Calculate utility levels */
-
+            
             // Calculate choice probabilities
             Unr = cross(Xnr', Beta') :- log(lsl_WPDF[|i,r\e,r|])        // Utility (choices in rows, draws in columns)
             Enr = exp(Unr :+ colmin(-mean(Unr) \ 700 :- colmax(Unr)))   // Standardize to avoid missings
@@ -1202,14 +1202,14 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                     else if (lsl_ufunc == "tran") DUdC = cross(((CX, 2 :* C2X :* log(C), log(L1), log(L2)) :/ C)', Beta[|1\ncons|]')
                     DCdM = cross((J(c, 1, 1), 2 :* Mwage, lsl_TaxregIas1[|i,1\e,.|], 2 :* Mwage :* lsl_TaxregIas1[|i,1\e,.|])', lsl_TaxregB[|1\2 + 2 * cols(lsl_TaxregIas1)|]')
                     DMdH = (lsl_Days[|i,1\e,1|] :/ 12 :/ 7) :* lsl_Hours[|i,1\e,.|]
-                    
                     if (lsl_wagecorr) {
                         DWdBw     = Wn :* (lsl_WageVars[|i,1\e,.|] :- lsl_residanchor :* Bsig :* cross(lsl_Wobs[|i,1\e,1|], lsl_WageVars[|i,1\e,.|]) :/ SigmaW)
                         DWdBsig   = Wn :* (Bsig + (colsum(lsl_Wobs[|i,1\e,1|]) == 0 | lsl_residanchor == 0) * lsl_R[iRV,nRV]
                                                 + (colsum(lsl_Wobs[|i,1\e,1|]) == 1 & lsl_residanchor == 1) * (  colsum(lsl_Wobs[|i,1\e,1|] :* LnWresPur[|i,1\e,.|]) / SigmaW
                                                                                                                - colsum(lsl_Wobs[|i,1\e,1|] :* LnWresPur[|i,1\e,.|]) * Bsig^2 / SigmaW^3))
                         //DWdBsig   = Wn :* ((1 - lsl_residanchor) * lsl_R[iRV,nRV] :+ Bsig)
-                        if (lsl_wagecorr > 0) DWdBwcorr = Wn :* (CholBW :+ lsl_R[|iRV,1\iRV,rvars|]' :- (colsum(lsl_Wobs[|i,1\e,1|]) == 1 & lsl_residanchor == 1) :* colsum(lsl_Wobs[|i,1\e,1|] :* LnWresPur[|i,1\e,.|]) :* Bsig :* CholBW :/ SigmaW^3)
+                        //if (lsl_wagecorr > 0) DWdBwcorr = Wn :* (CholBW :+ lsl_R[|iRV,1\iRV,rvars|] :- (colsum(lsl_Wobs[|i,1\e,1|]) == 1 & lsl_residanchor == 1) :* colsum(lsl_Wobs[|i,1\e,1|] :* LnWresPur[|i,1\e,.|]) :* Bsig :* CholBW :/ SigmaW^3)
+                        if (lsl_wagecorr > 0) DWdBwcorr = cross(Wn', CholBW :+ lsl_R[|iRV,1\iRV,rvars|] :- (colsum(lsl_Wobs[|i,1\e,1|]) == 1 & lsl_residanchor == 1) :* colsum(lsl_Wobs[|i,1\e,1|] :* LnWresPur[|i,1\e,.|]) :* Bsig :* CholBW :/ SigmaW^3)
                         /*
                         if      (lsl_wagecorr == 1) DWdBwcorr = Wn :* (rowsum(lsl_R[|iRV,1\iRV,rvars|] :* ((lsl_Rvars :== iC) :+ (lsl_Rvars :== iL1))') :+ B[iheck + 1])
                         else if (lsl_wagecorr == 2) DWdBwcorr = cross(Wn', ((rowsum(lsl_R[|iRV,1\iRV,rvars|] :* (lsl_Rvars :== iC )') :+ B[iheck + 1]),
