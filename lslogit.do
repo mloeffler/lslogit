@@ -2,7 +2,7 @@
  *
  * lslogit -- ESTIMATING MIXED LOGIT LABOR SUPPLY MODELS WITH STATA
  * 
- * (c) 2012-2013 Max Löffler <loeffler@iza.org>
+ * (c) 2012-2014 Max Löffler <loeffler@iza.org>
  *
  *****************************************************************************/
 
@@ -43,22 +43,48 @@ program define lslogit_Replay
         foreach aux in sigma_w1 sigma_w2 dudes {
             if (e(`aux') != .) {
                 local val = e(`aux')
-                local diparm `diparm' diparm(__lab__, value(`val') label("[`aux']"))
+                local diparm `diparm' diparm(__lab__, value(`val') ///
+                                                      label("[`aux']"))
             }
         }
         
         // Model description
         local footnote "Model:"
-        if      ("`e(ufunc)'" == "quad")   local footnote "`footnote' - Quadratic utility function"
-        else if ("`e(ufunc)'" == "tran")   local footnote "`footnote' - Translog utility function"
-        else if ("`e(ufunc)'" == "boxcox") local footnote "`footnote' - Box-Cox utility function"
-        if ("`e(randvars)'"   != "")       local footnote "`footnote'" _newline "       - Random coefficients (`e(randvars)')"
-        if ("`e(corr)'"       == "1")      local footnote "`footnote' with correlation"
-        if ("`e(wagep)'"      == "1")      local footnote "`footnote'" _newline "       - Wage prediction error integrated out"
-        if ("`e(draws)'"      != "1")      local footnote "`footnote'" _newline "       - Approximated using `e(draws)' Halton sequences"
-        if ("`e(wagevars)'"   != "")       local footnote "`footnote'" _newline "       - Joint labor supply and wage estimation"
-        if ("`e(wagecorr)'"   == "1")      local footnote "`footnote' with correlation (`e(wcorrvars)')"
-        if ("`e(density)'"    != "")       local footnote "`footnote'" _newline "       - Accounted for choice density"
+        if ("`e(ufunc)'" == "quad") {
+            local footnote "`footnote' - Quadratic utility function"
+        }
+        else if ("`e(ufunc)'" == "tran") {
+            local footnote "`footnote' - Translog utility function"
+        }
+        else if ("`e(ufunc)'" == "boxcox") {
+            local footnote "`footnote' - Box-Cox utility function"
+        }
+        if ("`e(randvars)'" != "") {
+            local footnote "`footnote'" _newline "       "
+                           "- Random coefficients (`e(randvars)')"
+        }
+        if ("`e(corr)'" == "1") {
+            local footnote "`footnote' with correlation"
+        }
+        if ("`e(wagep)'" == "1") {
+            local footnote "`footnote'" _newline "       "
+                           "- Wage prediction error integrated out"
+        }
+        if ("`e(draws)'" != "1") {
+            local footnote "`footnote'" _newline "       "
+                           "- Approximated using `e(draws)' Halton sequences"
+        }
+        if ("`e(wagevars)'" != "") {
+            local footnote "`footnote'" _newline "       "
+                           "- Joint labor supply and wage estimation"
+        }
+        if ("`e(wagecorr)'" != "") {
+            local footnote "`footnote' with correlation (`e(wcorrvars)')"
+        }
+        if ("`e(density)'" != "") {
+            local footnote "`footnote'" _newline "       "
+                           "- Accounted for choice density"
+        }
     }
     
     // Display output
@@ -73,30 +99,45 @@ cap program drop lslogit_Estimate
  */
 program define lslogit_Estimate, eclass
     version 12
-    syntax varname(numeric) [if] [in] [fweight/], GRoup(varname numeric)                                                    ///
-                                                  Consumption(varname numeric) Leisure(varlist numeric min=1 max=2)         ///
-                                                  [BOXCox QUADratic TRANslog                                                ///
-                                                   cx(varlist numeric fv) lx1(varlist numeric fv) lx2(varlist numeric fv)   ///
-                                                   c2x(varlist numeric fv) l2x1(varlist numeric fv) l2x2(varlist numeric fv) ///
-                                                   INDeps(varlist fv) TOTALTime(integer 80) DAYs(varname numeric)           ///
-                                                   boxcc(integer 1000) boxcl(integer 80) HWage(varlist numeric min=1 max=2) ///
-                                                   TAXReg(name) tria1(varlist numeric) tria2(varlist numeric)               ///
-                                                   WAGEPred(varlist numeric min=1 max=2) WAGESIGma(numlist min=1 max=2)     ///
-                                                   RANDvars(numlist ascending) corr DRaws(integer 50) burn(integer 15)      ///
-                                                   WAGEVars(varlist numeric fv) wagecorr(numlist ascending)                 ///
-                                                   noanchor TECHnique(string)                                               ///
-                                                   round Quiet Verbose lambda(real 0) force(varname numeric)                ///
-                                                   difficult trace search(name) iterate(integer 100) method(name)           ///
-                                                   gradient hessian debug Level(integer `c(level)') from(string)            ///
-                                                   DENsity(varname numeric) WAGEDraws(varname numeric) RANDSAMple]
+    syntax varname(numeric) [if] [in] [fweight/],             ///
+            GRoup(varname numeric)                            ///
+            Consumption(varname numeric)                      ///
+            Leisure(varlist numeric min=1 max=2)              ///
+            [BOXCox QUADratic TRANslog                        ///
+             cx(varlist numeric fv) c2x(varlist numeric fv)   ///
+             lx1(varlist numeric fv) l2x1(varlist numeric fv) ///
+             lx2(varlist numeric fv) l2x2(varlist numeric fv) ///
+             INDeps(varlist fv)                               ///
+             TOTALTime(integer 80) DAYs(varname numeric)      ///
+             boxcc(integer 1000) boxcl(integer 80)            ///
+             HWage(varlist numeric min=1 max=2)               ///
+             TAXReg(name)                                     ///
+             tria1(varlist numeric) tria2(varlist numeric)    ///
+             WAGEPred(varlist numeric min=1 max=2)            ///
+             WAGESIGma(numlist min=1 max=2)                   ///
+             RANDvars(numlist ascending) corr                 ///
+             DRaws(integer 50) burn(integer 15)               ///
+             WAGEVars(varlist numeric fv)                     ///
+             wagecorr(numlist ascending)                      ///
+             noanchor TECHnique(string)                       ///
+             round Quiet Verbose lambda(real 0)               ///
+             force(varname numeric)                           ///
+             difficult trace search(name)                     ///
+             iterate(integer 100) method(name)                ///
+             gradient hessian debug                           ///
+             Level(integer `c(level)') from(string)           ///
+             DENsity(varname numeric)                         ///
+             WAGEDraws(varname numeric) RANDSAMple]
     
     /* INITIALIZE ESTIMATOR
      */
     
     // Mark the estimation sample
     marksample touse
-    markout `touse' `varlist' `group' `consumption' `leisure' `cx' `lx1' `lx2' `c2x' `l2x1' `l2x2'  ///
-                    `indeps' `wagepred' `days' `tria1' `tria2' `wagevars' `density' `wagedraws'
+    markout `touse' `varlist' `group' `consumption' `leisure'  ///
+                    `cx' `lx1' `lx2' `c2x' `l2x1' `l2x2'       ///
+                    `indeps' `wagepred' `days' `tria1' `tria2' ///
+                    `wagevars' `density' `wagedraws'
     
     // Check for observations
     qui count if `touse'
@@ -125,9 +166,14 @@ program define lslogit_Estimate, eclass
     
     // Validate utility function
     local ufunc "quad"
-    if ("`boxcox'" != "" & "`translog'" == "" & "`quadratic'" == "") local ufunc "boxcox"
-    if ("`boxcox'" == "" & "`translog'" != "" & "`quadratic'" == "") local ufunc "tran"
-    if (("`boxcox'" != "") + ("`translog'" != "") + ("`quadratic'" != "") > 1) {
+    if ("`boxcox'" != "" & "`translog'" == "" & "`quadratic'" == "") {
+        local ufunc "boxcox"
+    }
+    if ("`boxcox'" == "" & "`translog'" != "" & "`quadratic'" == "") {
+        local ufunc "tran"
+    }
+    if (("`boxcox'" != "") + ("`translog'" != "") + ///
+        ("`quadratic'" != "") > 1) {
         di in r "utility function can be either 'quad', 'tran' or 'boxcox'"
         exit 498
     }
@@ -137,16 +183,22 @@ program define lslogit_Estimate, eclass
         local pre "`ln'_"
     }
     // If translog or Box-Cox, check for zeros
-    if (inlist("`ufunc'", "tran", "boxcox")) qui count if log(`consumption') == . & `touse'
-    else                                     qui count if `consumption' < 0       & `touse'
+    if (inlist("`ufunc'", "tran", "boxcox")) {
+        qui count if log(`consumption') == . & `touse'
+    }
+    else {
+        qui count if `consumption' < 0       & `touse'
+    }
     // Check for negative values
     if (r(N) > 0) {
         di in r "consumption contains values smaller or equal to zero"
         exit 498
     }
     // If Box-Cox, there is no sense in quadratic interactions
-    if ("`ufunc'" == "boxcox" & ("`c2x'" != "" | "`l2x1'" != "" | "`l2x2'" != "")) {
-        di in r "options c2x(), l2x1() and l2x2() not allowed with Box-Cox utility function"
+    if ("`ufunc'" == "boxcox" ///
+      & ("`c2x'" != "" | "`l2x1'" != "" | "`l2x2'" != "")) {
+        di in r "options c2x(), l2x1() and l2x2() not allowed with " ///
+                "Box-Cox utility function"
         exit 498
     }
     
@@ -182,11 +234,13 @@ program define lslogit_Estimate, eclass
         }
     }
     if ("`wagevars'" == "" & "`wagedraws'" != "") {
-        di in r "What shall we do with the drunken wagedraws? Only useful for joint estimation."
+        di in r "What shall we do with the drunken wagedraws? " ///
+                "Only useful for joint estimation."
         exit 498
     }
     if ("`wagedraws'" != "" & ("`wagepred'" != "" | "`wagecorr'" != "")) {
-        di in r "You can either use wagepred/wagecorr or wagedraws. It's up to you."
+        di in r "You can either use wagepred/wagecorr or wagedraws. " ///
+                "It's up to you."
         exit 498
     }
     
@@ -211,52 +265,29 @@ program define lslogit_Estimate, eclass
     // Validate wage correlation settings
     if ("`wagecorr'" != "") {
         foreach x of local wagecorr {
-            if (strpos(" `randvars' ", " `x' ") == 0) local randvars `randvars' `x'
+            if (strpos(" `randvars' ", " `x' ") == 0) {
+                local randvars `randvars' `x'
+            }
         }
-        local n_randvars  : word count `randvars'
-        
-        /*
-        // Check random variables
-        local iC  : word count `cx' _cons
-        local iL1 : word count `cx' _cons `c2x' `leisure' `lx1' _cons
-        local iL2 : word count `cx' _cons `c2x' `leisure' `lx1' _cons `l2x1' `lx2' _cons // BUGGY for two guys?
-        if ("`ufunc'" != "boxcox") {
-            local iL1 = `iL1' + 1
-            local iL2 = `iL2' + 2
-        }
-        local wagecorrC  = cond(strpos(" `randvars' ", " `iC' ")  > 0, 1, 0)
-        local wagecorrL1 = cond(strpos(" `randvars' ", " `iL1' ") > 0, 1, 0)
-        local wagecorrL2 = cond(strpos(" `randvars' ", " `iL2' ") > 0 & `n_leisure' == 2, 1, 0)
-        local corrBW     = `wagecorrC' + `wagecorrL1' + `wagecorrL2'
-        
-        // At least one has to be enabled
-        if (`corrBW' == 0) {
-            di in r "either preferences for consumption or leisure have to be random when estimating wage correlation"
-            exit 498
-        }
-        else local corr = "corr"                // Turn on preference correlation when wage correlation enabled
-        */
+        local n_randvars : word count `randvars'
     }
-    /*
-    else {
-        local corrBW     = 0
-        local wagecorrC  = 0
-        local wagecorrL1 = 0
-        local wagecorrL2 = 0
-    }
-    */
     
     // Validate Wage Prediction Options
     if (`n_wagep' == 0) {
         // Joint estimation with correlation?
         if (`n_wcorrvars' != 0) {
-            local wagep       = 1               // Run integration over wage errors
-            local n_wagep     = `n_leisure'     // Fake number of wage prediction indicators
-            local wagep_force = 1               // Run wage error prediction for full sample
+            // Run integration over wage errors
+            local wagep = 1
+            
+            // Fake number of wage prediction indicators
+            local n_wagep = `n_leisure'
+            
+            // Run wage error prediction for full sample
+            local wagep_force = 1
         }
-        // Never mind
+        // Never mind, no wage prediction
         else {
-            local wagep       = 0   // No wage prediction
+            local wagep       = 0
             local wagep_force = 0
         }
     }
@@ -268,11 +299,13 @@ program define lslogit_Estimate, eclass
         foreach wagep of local wagepred {
             cap bys `group': assert `wagep' == `wagep'[_N] if `touse'
             if (_rc != 0) {
-                di in r "wage prediction error settings ('`wagep'') need to be constant within households"
+                di in r "wage prediction error settings ('`wagep'') need " ///
+                        "to be constant within households"
                 exit 498
             }
             
-            // Check that wage prediction error settings are in line with wage correlation settings
+            // Check that wage prediction error settings are in line
+            //   with wage correlation settings
             if (`n_wcorrvars' != 0) {
                 cap assert `wagep' == 1 if `touse'
                 if (_rc != 0) local wagep_force = 1
@@ -280,7 +313,8 @@ program define lslogit_Estimate, eclass
         }
         
         // Wage prediction enabled
-        if (`n_wagep' == `n_leisure' & `n_wagep' == `n_hwage' & (`n_wagep' == `n_wagesig' | "`wagevars'" != "")) {
+        if (`n_wagep' == `n_leisure' & `n_wagep' == `n_hwage' ///
+          & (`n_wagep' == `n_wagesig' | "`wagevars'" != "")) {
             tempvar preds
             qui egen `preds' = rowtotal(`wagepred') if `touse'
             qui count if `preds' >= 1 & (`touse')
@@ -288,16 +322,23 @@ program define lslogit_Estimate, eclass
         }
         // Settings incorrect
         else {
-            di in r "number of wage prediction variables does not match the number of leisure terms, hourly wage rates or mean squared errors"
+            di in r "number of wage prediction variables does not match " ///
+                    "the number of leisure terms, hourly wage rates or "  ///
+                    "mean squared errors"
             exit 498
         }
     }
     
     // Show info that wage prediction settings will be ignored
-    if (`wagep_force' == 1) di as text "(you selected option 'wagecorr', so wage prediction errors will be integrated out anyway)"
+    if (`wagep_force' == 1) {
+        di as text "(you selected option 'wagecorr', so wage prediction " ///
+                   "errors will be integrated out anyway)"
+    }
     
     // No need to take random draws
-    if (`wagep' == 0 & "`randvars'" == "" & "`randsample'" == "") local draws = 1
+    if (`wagep' == 0 & "`randvars'" == "" & "`randsample'" == "") {
+        local draws = 1
+    }
     
     // Tax regression or tax benefit calculator needed
     local taxreg_rmse = 0
@@ -310,7 +351,8 @@ program define lslogit_Estimate, eclass
             mat `taxreg_from' = e(b)
             local taxreg_rmse = e(rmse)
             
-            // Fetch "constant" regressors (starting after wage variables and wage interactions)
+            // Fetch "constant" regressors (starting after wage variables
+            //   and wage interactions)
             local taxreg_betas   : colnames `taxreg_from'
             local n_taxreg_betas : word count `taxreg_betas'
             local taxreg_vars
@@ -356,11 +398,16 @@ program define lslogit_Estimate, eclass
         // Set up consumption and leisure
         tempvar c l1 l2
         if (inlist("`ufunc'", "tran", "boxcox")) {
-            qui gen `c' = log(cond("`ufunc'" == "boxcox" & `boxcc' > 0, `consumption' / `boxcc', `consumption')) if `touse'
+            qui gen `c' = log(cond("`ufunc'" == "boxcox" & `boxcc' > 0,     ///
+                                   `consumption' / `boxcc', `consumption')) ///
+                          if `touse'
             foreach var of local leisure {
                 if (strpos("`leisure'", "`var'") == 1) local lei l1
                 else                                   local lei l2
-                qui gen ``lei'' = log(cond("`ufunc'" == "boxcox" & `boxcl' > 0, `var' / `boxcl', `var')) if `touse'
+                qui gen ``lei'' = log(cond("`ufunc'" == "boxcox" &  ///
+                                                `boxcl' > 0,        ///
+                                           `var' / `boxcl', `var')) ///
+                                  if `touse'
             }
         }
         else {
@@ -386,8 +433,10 @@ program define lslogit_Estimate, eclass
             }
             if ("`ufunc'" != "boxcox") {
                 foreach var in ``f'2x`l'' 0 {
-                    if ("`var'" != "0") local initrhs `initrhs' c.``ia''#c.``ia''#c.`var'
-                    else                local initrhs `initrhs' c.``ia''#c.``ia''
+                    if ("`var'" != "0") {
+                        local initrhs `initrhs' c.``ia''#c.``ia''#c.`var'
+                    }
+                    else local initrhs `initrhs' c.``ia''#c.``ia''
                 }
             }
             if ("`ia'" == "c") {
@@ -403,10 +452,12 @@ program define lslogit_Estimate, eclass
         
         // Estimate
         tempname init_from
-        mat `init_from' = J(1, 2 + 2 * `n_leisure' + `n_cxias' + `n_lx1ias' + `n_lx2ias' + `n_indeps', 0)
+        mat `init_from' = J(1, 2 + 2 * `n_leisure' + `n_cxias' + `n_lx1ias' ///
+                                 + `n_lx2ias' + `n_indeps', 0)
 
         // Get init values from simple conditional logit estimation
-        `qui' clogit `varlist' `initrhs' if `touse' `wgt', group(`group') iterate(25)
+        `qui' clogit `varlist' `initrhs' if `touse' `wgt', ///
+                    group(`group') iterate(25)
         if (e(converged) == 1) {
             // Save results
             mat `init_from' = e(b)
@@ -428,9 +479,13 @@ program define lslogit_Estimate, eclass
                 `qui' reg `ln`w'' `wagevars' if `touse' & `varlist' `wgt'
                 mat `init_wage' = e(b)
 
-                // Save root mean squared error if wage variance is to be estimated and
-                //   add correlation terms if correlation between wages and preferences enabled
-                if ("`wagecorr'" != "") mat `init_wage' = `init_wage', e(rmse), J(1, `n_wcorrvars', 0.0001)
+                // Save root mean squared error if wage variance is 
+                //   to be estimated and add correlation terms if
+                //   correlation between wages and preferences enabled
+                if ("`wagecorr'" != "") {
+                    mat `init_wage' = `init_wage', e(rmse), ///
+                                      J(1, `n_wcorrvars', 0.0001)
+                }
             }
         }
         
@@ -454,19 +509,34 @@ program define lslogit_Estimate, eclass
     qui keep if `touse'
     sort `group' //`leisure'
     
+    
     //
     // Setup data
     //
     
-    mata: lsl_round  = ("`round'" != "")                                    // To round, or not to round?
-    mata: lsl_ufunc  = st_local("ufunc")                                    // Utility function
+    // To round, or not to round?
+    mata: lsl_round  = ("`round'" != "")
+    
+    // Utility function
+    mata: lsl_ufunc  = st_local("ufunc")
+    
+    // Weights?
     mata: lsl_Weight = ("`weight'" != "" ? st_data(., "`wgtvar'") ///
-                                         : J(`nobs', 1, 1))                    // Weight
-    mata: lsl_Y      = st_data(., "`varlist'")                              // Left hand side
-    mata: lsl_Hwage  = (`n_hwage' > 0 ? st_data(., tokens("`hwage'"))   ///
-                                      : J(`nobs', `n_leisure', 0))          // Hourly wage rates
-    mata: lsl_boxcc  = (lsl_ufunc == "boxcox" & `boxcc' > 0 ? `boxcc' : 1)   // Normalizing constant for Box-Cox consumption
-    mata: lsl_boxcl  = (lsl_ufunc == "boxcox" & `boxcl' > 0 ? `boxcl' : 1)   // Normalizing constant for Box-Cox leisure
+                                         : J(`nobs', 1, 1))
+    
+    // Left hand side / Choice indicator
+    mata: lsl_Y      = st_data(., "`varlist'")
+    
+    // Hourly wage rates
+    mata: lsl_Hwage  = (`n_hwage' > 0 ? st_data(., tokens("`hwage'")) ///
+                                      : J(`nobs', `n_leisure', 0))
+    
+    // Normalizing constant for Box-Cox consumption
+    mata: lsl_boxcc  = (lsl_ufunc == "boxcox" & `boxcc' > 0 ? `boxcc' : 1)
+    
+    // Normalizing constant for Box-Cox leisure
+    mata: lsl_boxcl  = (lsl_ufunc == "boxcox" & `boxcl' > 0 ? `boxcl' : 1)
+    
     
     //
     // Right hand side
@@ -474,20 +544,26 @@ program define lslogit_Estimate, eclass
     
     // Consumption, squared and interactions
     mata: lsl_C   = st_data(., "`consumption'") :/ lsl_boxcc
-    mata: lsl_CX  = ((`n_cxias'  > 0 ? st_data(., tokens("`cx'"))   ///
-                                     : J(`nobs', 0, 0)), J(`nobs', 1, 1))
-    mata: lsl_C2X = ((`n_c2xias' > 0 ? st_data(., tokens("`c2x'"))  ///
-                                     : J(`nobs', 0, 0)), J(`nobs', (lsl_ufunc != "boxcox" ? 1 : 0), 1))
+    mata: lsl_CX  = ((`n_cxias'  > 0 ? st_data(., tokens("`cx'"))  ///
+                                     : J(`nobs', 0, 0)),           ///
+                     J(`nobs', 1, 1))
+    mata: lsl_C2X = ((`n_c2xias' > 0 ? st_data(., tokens("`c2x'")) ///
+                                     : J(`nobs', 0, 0)),           ///
+                     J(`nobs', (lsl_ufunc != "boxcox" ? 1 : 0), 1))
     
     // Leisure, squared and interactions
     forval i = 1/2 {
         local var : word `i' of `leisure'
         if ("`var'" != "") {
             mata: lsl_L`i'   = st_data(., "`var'") :/ lsl_boxcl
-            mata: lsl_LX`i'  = ((`n_lx`i'ias'  >  0 ? st_data(., tokens("`lx`i''"))     ///
-                                                    : J(`nobs', 0, 0)), J(`nobs', 1, 1))
-            mata: lsl_L2X`i' = ((`n_l2x`i'ias' >  0 ? st_data(., tokens("`l2x`i''"))    ///
-                                                    : J(`nobs', 0, 0)), J(`nobs', (lsl_ufunc != "boxcox" ? 1 : 0), 1))
+            mata: lsl_LX`i'  = ((`n_lx`i'ias'  >  0                 ///
+                                   ? st_data(., tokens("`lx`i''"))  ///
+                                   : J(`nobs', 0, 0)),              ///
+                                J(`nobs', 1, 1))
+            mata: lsl_L2X`i' = ((`n_l2x`i'ias' >  0                 ///
+                                   ? st_data(., tokens("`l2x`i''")) ///
+                                   : J(`nobs', 0, 0)),              ///
+                                J(`nobs', (lsl_ufunc != "boxcox" ? 1 : 0), 1))
         }
         else {
             mata: lsl_L`i'   = J(`nobs', 0, 0)
@@ -497,18 +573,28 @@ program define lslogit_Estimate, eclass
     }
     
     // Dummy variables
-    mata: lsl_Xind = (`n_indeps' > 0 ? st_data(., tokens("`indeps'")) : J(`nobs', 0, 0))
+    mata: lsl_Xind = (`n_indeps' > 0 ? st_data(., tokens("`indeps'")) ///
+                                     : J(`nobs', 0, 0))
     
+    //
     // Build right hand side
-    if ("`ufunc'" == "tran") {          // Translog utility
-        mata: lsl_X = (log(lsl_C)  :* (lsl_CX,  log(lsl_C)  :* lsl_C2X,   log(lsl_L1),   log(lsl_L2)),         ///
-                       log(lsl_L1) :* (lsl_LX1, log(lsl_L1) :* lsl_L2X1),                                    ///
-                       log(lsl_L2) :* (lsl_LX2, log(lsl_L2) :* lsl_L2X2), log(lsl_L1) :* log(lsl_L2), lsl_Xind)
+    //
+    
+    // Translog utility
+    if ("`ufunc'" == "tran") {
+        mata: lsl_X = (log(lsl_C)  :* (lsl_CX,  log(lsl_C)  :* lsl_C2X,   ///
+                                       log(lsl_L1), log(lsl_L2)),         ///
+                       log(lsl_L1) :* (lsl_LX1, log(lsl_L1) :* lsl_L2X1), ///
+                       log(lsl_L2) :* (lsl_LX2, log(lsl_L2) :* lsl_L2X2), ///
+                       log(lsl_L1) :* log(lsl_L2), lsl_Xind)
     }
-    else if ("`ufunc'" == "quad") {     // Quadratic utility
-        mata: lsl_X = (lsl_C  :* (lsl_CX,  lsl_C  :* lsl_C2X,   lsl_L1,   lsl_L2),         ///
-                       lsl_L1 :* (lsl_LX1, lsl_L1 :* lsl_L2X1),                          ///
-                       lsl_L2 :* (lsl_LX2, lsl_L2 :* lsl_L2X2), lsl_L1 :* lsl_L2, lsl_Xind)
+    // Quadratic utility
+    else if ("`ufunc'" == "quad") {
+        mata: lsl_X = (lsl_C  :* (lsl_CX,  lsl_C  :* lsl_C2X,   ///
+                                  lsl_L1, lsl_L2),              ///
+                       lsl_L1 :* (lsl_LX1, lsl_L1 :* lsl_L2X1), ///
+                       lsl_L2 :* (lsl_LX2, lsl_L2 :* lsl_L2X2), ///
+                       lsl_L1 :* lsl_L2, lsl_Xind)
     }
     else mata: lsl_X = J(`nobs', 0, 0)
     
@@ -517,40 +603,85 @@ program define lslogit_Estimate, eclass
     // Joint wage estimation
     //
     
-    mata: lsl_joint       = ("`joint'" != "")                                                // ML joint estimation?
-    mata: lsl_Wobs        = (lsl_Y :* (log(lsl_Hwage) :< .))                                 // Wage observed?
-    mata: lsl_WageVars    = (lsl_joint == 1 ? (st_data(., tokens("`wagevars'")), J(`nobs', 1, 1))    ///
-                                            : J(`nobs', 0, 0))                               // Wage variables
-    mata: lsl_Days        = ("`days'" != "" ? st_data(., "`days'") : J(`nobs', 1, 365))      // Days of taxyear
-    mata: lsl_Hours       = `totaltime' :- (lsl_L1, lsl_L2) :* lsl_boxcl                     // Hypothetical hours (caution: Box-Cox normalization!)
-    mata: lsl_wagecorr    = `n_wcorrvars'                                                    // Correlate wage rates and preferences?
-    mata: st_local("wagecorr", invtokens(strofreal(sort(strtoreal(tokens("`wagecorr'"))', 1)')))
-    mata: lsl_Wcorrvars   = ("`wagecorr'" != "" ? strtoreal(tokens("`wagecorr'"))' : J(0, 1, 0))              // Wage correlation coefficients
-    mata: lsl_residanchor = ("`anchor'" != "noanchor") & (`wagep' == 1)                      // Use actual residiuals for folks with observed wages
-    mata: lsl_Wagedraws   = ("`wagedraws'" != "" ? st_data(., "`wagedraws'") : J(`nobs', 0, 0))
+    // ML joint estimation?
+    mata: lsl_joint       = ("`joint'" != "")
+    
+    // Wage observed?
+    mata: lsl_Wobs        = (lsl_Y :* (log(lsl_Hwage) :< .))
+    
+    // Wage variables
+    mata: lsl_WageVars    = (lsl_joint == 1                         ///
+                               ? (st_data(., tokens("`wagevars'")), ///
+                                  J(`nobs', 1, 1))                  ///
+                               : J(`nobs', 0, 0))
+    
+    // Days of taxyear
+    mata: lsl_Days        = ("`days'" != "" ? st_data(., "`days'") ///
+                                            : J(`nobs', 1, 365))
+    
+    // Hypothetical hours (caution: Box-Cox normalization!)
+    mata: lsl_Hours       = `totaltime' :- (lsl_L1, lsl_L2) :* lsl_boxcl
+    
+    // Correlate wage rates and preferences?
+    mata: lsl_wagecorr    = `n_wcorrvars'
+    mata: st_local("wagecorr", invtokens(strofreal(sort(strtoreal( ///
+                                         tokens("`wagecorr'"))', 1)')))
+    
+    // Wage correlation coefficients
+    mata: lsl_Wcorrvars   = ("`wagecorr'" != ""                   ///
+                               ? strtoreal(tokens("`wagecorr'"))' ///
+                               : J(0, 1, 0))
+    
+    // Use actual residiuals for folks with observed wages
+    mata: lsl_residanchor = ("`anchor'" != "noanchor") & (`wagep' == 1)
+    
+    // Wagedraws? For estimation on random choice set
+    mata: lsl_Wagedraws   = ("`wagedraws'" != ""           ///
+                               ? st_data(., "`wagedraws'") ///
+                               : J(`nobs', 0, 0))
     
     
     //
     // Wage Prediction Stuff
     //
     
-    mata: lsl_wagep = `wagep'                                                   // Run Wage Prediction
-    mata: lsl_Wpred = (lsl_wagep ? (`wagep_force' ? J(`nobs', `n_wagep', 1)     ///
-                                                  : st_data(., "`wagepred'"))   ///
-                                 : J(`nobs', 1 + cols(lsl_L2), 0))              // Dummies enabling or disabling the wage prediction for individuals
-    mata: lsl_Sigma = ("`wagesigma'" != "" ? strtoreal(tokens("`wagesigma'"))   ///
-                                           : J(1, `n_wagesig', 0))              // Estimated variance of wage equation
+    // Run Wage Prediction
+    mata: lsl_wagep = `wagep'
+    
+    // Dummies enabling or disabling the wage prediction for individuals
+    mata: lsl_Wpred = (lsl_wagep ? (`wagep_force'                 ///
+                                      ? J(`nobs', `n_wagep', 1)   ///
+                                      : st_data(., "`wagepred'")) ///
+                                 : J(`nobs', 1 + cols(lsl_L2), 0))
+    
+    // Estimated variance of wage equation
+    mata: lsl_Sigma = ("`wagesigma'" != ""                  ///
+                         ? strtoreal(tokens("`wagesigma'")) ///
+                         : J(1, `n_wagesig', 0))
     
     //
     // Tax regression
     //
     
     if ("`taxreg'" != "") {
-        mata: lsl_TaxregB     = st_matrix("`taxreg_from'")                                          // Tax regression estimates
-        mata: lsl_taxreg_rmse = `taxreg_rmse'                                                       // Root Mean Squared error of tax regression
-        mata: lsl_TaxregIas1  = ("`tria1'" != "" ? st_data(., tokens("`tria1'")) : J(`nobs', 0, 0)) // Interaction variables on Mwage1 and Mwage1^2
-        mata: lsl_TaxregIas2  = ("`tria2'" != "" ? st_data(., tokens("`tria2'")) : J(`nobs', 0, 0)) // Interaction variables on Mwage2 and Mwage2^2
-        mata: lsl_TaxregVars  = st_data(., tokens("`taxreg_vars'"))                                 // Variables that are independent of m_wage
+        // Tax regression estimates
+        mata: lsl_TaxregB     = st_matrix("`taxreg_from'")
+        
+        // Root Mean Squared error of tax regression
+        mata: lsl_taxreg_rmse = `taxreg_rmse'
+        
+        // Interaction variables on Mwage1 and Mwage1^2
+        mata: lsl_TaxregIas1  = ("`tria1'" != ""                   ///
+                                   ? st_data(., tokens("`tria1'")) ///
+                                   : J(`nobs', 0, 0))
+        
+        // Interaction variables on Mwage2 and Mwage2^2
+        mata: lsl_TaxregIas2  = ("`tria2'" != ""                   ///
+                                   ? st_data(., tokens("`tria2'")) ///
+                                   : J(`nobs', 0, 0))
+        
+        // Variables that are independent of m_wage
+        mata: lsl_TaxregVars  = st_data(., tokens("`taxreg_vars'"))
     }
     
     
@@ -558,32 +689,60 @@ program define lslogit_Estimate, eclass
     // Group level stuff
     //
     
-    mata: lsl_J = panelsetup(st_data(., "`group'"), 1)                                  // Separate households
-    mata: lsl_J = (lsl_J, 1 :+ lsl_J[.,2] :- lsl_J[.,1])                                // Add column with number of choices
-    mata: lsl_groups = rows(lsl_J)                                                      // Number of groups
+    // Separate households
+    mata: lsl_J = panelsetup(st_data(., "`group'"), 1)
+    
+    // Add column with number of choices
+    mata: lsl_J = (lsl_J, 1 :+ lsl_J[.,2] :- lsl_J[.,1])
+    
+    // Number of groups
+    mata: lsl_groups = rows(lsl_J)
     mata: st_numscalar("n_groups", lsl_groups)
-    mata: lsl_Dens = ("`density'" != "" ? st_data(., "`density'") : J(`nobs', 1, 1))    // Density of offered choices
+    
+    // Density of offered choices
+    mata: lsl_Dens = ("`density'" != "" ? st_data(., "`density'") ///
+                                        : J(`nobs', 1, 1))
     
     
     //
     // Dude force (lagrange constraints)
     //
     
-    mata: lsl_lambda = `lambda'                                                         // Lagrange multiplier
-    mata: lsl_force  = ("`force'" != "" ? st_data(., "`force'") : J(`nobs', 1, 0))      // Which observations to include in constraint?
+    // Lagrange multiplier
+    mata: lsl_lambda = `lambda'
+    
+    // Which observations to include in constraint?
+    mata: lsl_force  = ("`force'" != "" ? st_data(., "`force'") ///
+                                        : J(`nobs', 1, 0))
     
     
     //
     // Random draws
     //
     
-    mata: lsl_draws = strtoreal(st_local("draws"))                                                      // Number of draws
-    mata: lsl_burn  = strtoreal(st_local("burn"))                                                       // Number of draws to burn
-    mata: st_local("randvars", invtokens(strofreal(sort(strtoreal(tokens("`randvars'"))', 1)')))
-    mata: lsl_Rvars = ("`randvars'" != "" ? strtoreal(tokens("`randvars'"))' : J(0, 1, 0))              // Random coefficients
-    mata: lsl_corr  = ("`corr'" != "")                                                                  // Random coefficients correlated?
-    mata: lsl_R     = (`rvars' > 0 ? invnormal(halton(lsl_groups * lsl_draws, `rvars', 1 + lsl_burn))   ///
-                                   : J(`nobs', 0, 0))    // Halton sequences
+    // Number of draws
+    mata: lsl_draws = strtoreal(st_local("draws"))
+    
+    // Number of draws to burn
+    mata: lsl_burn  = strtoreal(st_local("burn"))
+    mata: st_local("randvars", invtokens(strofreal(sort(strtoreal( ///
+                                         tokens("`randvars'"))', 1)')))
+    
+    // Random coefficients
+    mata: lsl_Rvars = ("`randvars'" != ""                   ///
+                         ? strtoreal(tokens("`randvars'"))' ///
+                         : J(0, 1, 0))
+    
+    // Random coefficients correlated?
+    mata: lsl_corr  = ("`corr'" != "")
+    
+    // Halton sequences
+    mata: lsl_R     = (`rvars' > 0                                  ///
+                         ? invnormal(halton(lsl_groups * lsl_draws, ///
+                                            `rvars', 1 + lsl_burn)) ///
+                         : J(`nobs', 0, 0))
+    
+    /// Estimate on random choice set?
     mata: lsl_randsample = ("`randsample'" != "")
     if ("`randsample'" != "") {
         mata: lsl_WDRW = invnormal(runiform(`nobs', lsl_draws))
@@ -596,10 +755,20 @@ program define lslogit_Estimate, eclass
     // Calculate log-likelihood of null model
     //
     
-    mata: st_local("SigmaW", strofreal((lsl_joint ? sqrt(cross(lsl_Wobs :* log(lsl_Hwage), log(lsl_Hwage)) / (colsum(lsl_Wobs) - `n_wagevars' - 1)) : 0)))
-    mata: st_local("ll_0", strofreal(- colsum(cross(lsl_Weight[lsl_J[.,1]], log(lsl_J[.,3])))          ///
-                                     + (lsl_joint ? cross(lsl_Weight :* lsl_Wobs, log(normalden(log(lsl_Hwage) :/ `SigmaW')) :- log(`SigmaW')) : 0)))
-    if ("`density'" != "") di as text "(Note: Pseudo-R2 buggy when using choice densities)
+    mata: st_local("SigmaW", strofreal(                                     ///
+                   (lsl_joint ? sqrt(cross(lsl_Wobs :* log(lsl_Hwage),      ///
+                                           log(lsl_Hwage)) /                ///
+                                     (colsum(lsl_Wobs) - `n_wagevars' - 1)) ///
+                              : 0)))
+    mata: st_local("ll_0", strofreal(                                       ///
+                   - colsum(cross(lsl_Weight[lsl_J[.,1]], log(lsl_J[.,3]))) ///
+                   + (lsl_joint ? cross(lsl_Weight :* lsl_Wobs,             ///
+                                        log(normalden(log(lsl_Hwage) :/     ///
+                                        `SigmaW')) :- log(`SigmaW'))        ///
+                                : 0)))
+    if ("`density'" != "") {
+        di as text "(Note: Pseudo-R2 buggy when using choice densities)
+    }
     
     // Restore data
     restore
@@ -610,18 +779,37 @@ program define lslogit_Estimate, eclass
     
     if ("`verbose'" != "") di as text "Run estimation..."
     
+    //
     // Set up equations
-    local eq_consum (Cx: `varlist' = `cx')                              // Consumption
-    if ("`ufunc'" != "boxcox") local eq_consum `eq_consum' (CxC: `c2x') // Consumption^2
+    //
+    
+    // Consumption
+    local eq_consum (Cx: `varlist' = `cx')
+    
+    // Consumption^2
+    if ("`ufunc'" != "boxcox") local eq_consum `eq_consum' (CxC: `c2x')
+    
+    // Leisure terms
     local eq_leisure
     foreach var of local leisure {
         local i = 1 + (strpos("`leisure'", "`var'") > 1)
-        local eq_leisure `eq_leisure' (L`i'x: `lx`i'')                                  // Leisure
-        if ("`ufunc'" != "boxcox") local eq_leisure `eq_leisure' (L`i'xL`i': `l2x`i'')  // Leisure^2
-        local eq_consum  `eq_consum' /CxL`i'                                            // Consumption X leisure interaction
+        
+        // Leisure
+        local eq_leisure `eq_leisure' (L`i'x: `lx`i'')
+        
+        // Leisure^2
+        if ("`ufunc'" != "boxcox") local eq_leisure `eq_leisure' ///
+                                                    (L`i'xL`i': `l2x`i'')
+        
+        // Consumption X leisure interaction
+        local eq_consum  `eq_consum' /CxL`i'
     }
-    if (`n_leisure' == 2) local eq_leisure `eq_leisure' /L1xL2          // Leisure term interaction
-    if (`n_indeps'  >  0) local eq_indeps  (IND: `indeps', noconst)     // Independent variables / dummies
+    
+    // Leisure term interaction
+    if (`n_leisure' == 2) local eq_leisure `eq_leisure' /L1xL2
+    
+    // Independent variables / dummies
+    if (`n_indeps'  >  0) local eq_indeps  (IND: `indeps', noconst)
     
     // Joint wage estimation?
     if ("`wagevars'" != "") {
@@ -630,19 +818,17 @@ program define lslogit_Estimate, eclass
         
         // Correlation with preferences?
         if ("`wagecorr'" != "") {
-            local eq_wages `eq_wages' /l_W1_W1                          // Cholesky for Var(W1)
+            // Cholesky for Var(W1) and Wagecorr
+            local eq_wages `eq_wages' /l_W1_W1
             foreach x of local wagecorr {
                 local eq_wages `eq_wages' /l_`x'_W1
             }
-            /*
-            if (`wagecorrC'  == 1) local eq_wages `eq_wages' /l_C_W1    // Cholesky for Cov(W1, C)
-            if (`wagecorrL1' == 1) local eq_wages `eq_wages' /l_L1_W1   // Cholesky for Cov(W1, L1)
-            if (`wagecorrL2' == 1) local eq_wages `eq_wages' /l_L2_W2   // Cholesky for Cov(W2, L2) -- BUGGY!!
-            */
         }
 
         // Add wage estimates to initial values
-        if ("`initopt'" != "" & "`init_from'" != "") mat `init_from' = (`init_from', `init_wage')
+        if ("`initopt'" != "" & "`init_from'" != "") {
+            mat `init_from' = (`init_from', `init_wage')
+        }
     }
     
     // Box-Cox utility function?
@@ -651,23 +837,21 @@ program define lslogit_Estimate, eclass
         if (`n_leisure' == 2) local eq_boxcox `eq_boxcox' /l_L2
 
         // Add initial values (assume Stone-Geary model)
-        if ("`initopt'" != "" & "`init_from'" != "") mat `init_from' = (`init_from', 0.0, J(1, `n_leisure', 0.0))
+        if ("`initopt'" != "" & "`init_from'" != "") {
+            mat `init_from' = (`init_from', 0.0, J(1, `n_leisure', 0.0))
+        }
     }
     
     // Random coefficients?
     if (`n_randvars' > 0) {
         local eq_rands
-        if ("`corr'" == "" /*& "`wagecorr'" == ""*/) {
-            /*
-            forval i = 1/`n_randvars' {
-                local coef : word `i' of `randvars'
-                local eq_rands `eq_rands' /sd_`coef'
-            }
-            */
+        if ("`corr'" == "") {
             foreach coef of local randvars {
                 local eq_rands `eq_rands' /sd_`coef'
             }
-            if ("`initopt'" != "" & "`init_from'" != "") mat `init_from' = (`init_from', J(1, `n_randvars', 0.0001))
+            if ("`initopt'" != "" & "`init_from'" != "") {
+                mat `init_from' = (`init_from', J(1, `n_randvars', 0.0001))
+            }
         }
         else {
             forval i = 1/`n_randvars' {
@@ -677,7 +861,11 @@ program define lslogit_Estimate, eclass
                     local eq_rands `eq_rands' /l_`a'_`b'
                 }
             }
-            if ("`initopt'" != "" & "`init_from'" != "") mat `init_from' = (`init_from', J(1, `n_randvars' * (`n_randvars' + 1) / 2, 0.0002))
+            if ("`initopt'" != "" & "`init_from'" != "") {
+                mat `init_from' = (`init_from',        ///
+                                   J(1, `n_randvars' * ///
+                                        (`n_randvars' + 1) / 2, 0.0002))
+            }
         }
     }
 
@@ -688,14 +876,20 @@ program define lslogit_Estimate, eclass
     
     scalar lsl_dudes = .
     
-    local callcmd ml model `method'`debug' lslogit_d2() `eq_consum' `eq_leisure' `eq_indeps' `eq_wages' `eq_boxcox' `eq_rands' ///
-                        if `touse' `wgt', group(`group') `initopt' obs(`wgtnobs') search(off) iterate(`iterate') nopreserve max `difficult' `trace' `gradient' `hessian' technique(`technique')
+    local callcmd ml model `method'`debug' lslogit_d2() `eq_consum' ///
+                            `eq_leisure' `eq_indeps' `eq_wages'     ///
+                            `eq_boxcox' `eq_rands'                  ///
+                        if `touse' `wgt', group(`group') `initopt'  ///
+                            obs(`wgtnobs') search(off) nopreserve   ///
+                            iterate(`iterate') max `difficult'      ///
+                            `trace' `gradient' `hessian'            ///
+                            technique(`technique')
     if ("`debug'" != "" | "`verbose'" != "") di as text "`callcmd'"
     `callcmd'
     
-    //
-    // Save results
-    //
+    
+    /* SAVE RESULTS
+     */
     
     // Save model setup
     ereturn local title         "Mixed Logit Labor Supply Model"
@@ -727,19 +921,27 @@ program define lslogit_Estimate, eclass
     if ("`wagepred'" != "") ereturn local wagepred `wagepred'
     if ("`hwage'"    != "") ereturn local hwage    `hwage'
     if ("`days'"     != "") ereturn local days     `days'
-    if ("`ufunc'" == "boxcox") {    // Box-Cox
+    
+    // Box-Cox
+    if ("`ufunc'" == "boxcox") {
         if ("`boxcc'" != "") ereturn local boxcc   `boxcc'
         if ("`boxcl'" != "") ereturn local boxcl   `boxcl'
     }
-    if (`n_randvars' > 0) {         // Random coefficients
+    
+    // Random coefficients
+    if (`n_randvars' > 0) {
         ereturn local randvars `randvars'
         ereturn local corr = cond("`corr'" != "", 1, 0)
     }
-    if (`n_wcorrvars' > 0) {         // Random coefficients correlated with wages
+    
+    // Random coefficients correlated with wages
+    if (`n_wcorrvars' > 0) {
         ereturn local wcorrvars `wagecorr'
         ereturn local wagecorr = `n_wcorrvars'
     }
-    if ("`taxreg'" != "") {         // Tax regression
+    
+    // Tax regression
+    if ("`taxreg'" != "") {
         ereturn matrix taxreg_b = `taxreg_from', copy
         if ("`taxreg_vars'" != "") ereturn local taxreg_vars `taxreg_vars'
         if ("`tria1'" != "") ereturn local taxreg_ia1 `tria1'
@@ -752,29 +954,33 @@ program define lslogit_Estimate, eclass
     if ("`density'"   != "") ereturn local density   `density'
     
     // Display some coefficients as auxiliary
-    ereturn scalar k_aux = ("`ufunc'" == "boxcox") * (1 + `n_leisure') +                    ///
-                           `n_randvars' * cond("`corr'" != "", (`n_randvars' + 1) / 2, 1) + ///
+    ereturn scalar k_aux = ("`ufunc'" == "boxcox") * (1 + `n_leisure') +    ///
+                           `n_randvars' * cond("`corr'" != "",              ///
+                                               (`n_randvars' + 1) / 2, 1) + ///
                            ("`wagecorr'" != "") + `n_wcorrvars'
     
-    // Pseudo R2 (may be misleading as it refers to the null-model, LR and p value refer to init values...)
+    // Pseudo R2 (may be misleading as it refers to the null-model,
+    //            LR and p value refer to init values...)
     if ("`ll_0'" != "") ereturn scalar r2_p = 1 - e(ll)/`ll_0'
     
     // Additional output
     if (lsl_dudes != .) ereturn scalar dudes = lsl_dudes
     /*
-    foreach aux in sigma_w1 sigma_w2 dudes {
+    foreach aux in sigma_w1 sigma_w2 {
         di as error "`aux' = " `aux'
         if (`aux' != "") ereturn scalar `aux' = ``aux''
     }
     */
     
-    //
-    // Clean up
-    //
+    
+    /* CLEAN UP
+     */
     
     /*
-    foreach m in round ufunc Weight Y Hwage boxcc boxcl C CX C2X L1 LX1 L2X1 L2 LX2 L2X2 Xind X joint ///
-                 WageVars Days Hours wagep Wpred Sigma TaxregB TaxregIas1 TaxregIas2 TaxregVars ///
+    foreach m in round ufunc Weight Y Hwage boxcc boxcl C CX C2X ///
+                 L1 LX1 L2X1 L2 LX2 L2X2 Xind X joint            ///
+                 WageVars Days Hours wagep Wpred Sigma           ///
+                 TaxregB TaxregIas1 TaxregIas2 TaxregVars        ///
                  groups J draws burn Rvars corr R {
         cap mata mata drop lsl_`m'
     }
