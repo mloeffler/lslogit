@@ -1453,6 +1453,7 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
     external real colvector lsl_Days            //   Number of days per tax year
     external real matrix    lsl_Hwage           //   Hourly wage rates
     external real rowvector lsl_Sigma           //   Variance of the wage regression
+    external real rowvector lsl_SigmaW           //   Variance of the wage regression (buggy?)
     external real matrix    lsl_Hours           //   Hours of work
     external real rowvector lsl_TaxregB         // Tax Regression
     external real matrix    lsl_TaxregVars      //   Wage independent variables of tax regression
@@ -1535,7 +1536,7 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
         
         // Use residual anchor?
         if (lsl_residanchor & lsl_joint & wp & colsum(lsl_Wobs[|i,1\e,1|]) == 1) {
-            lsl_R[|lsl_draws * (n - 1) + 1,cols(lsl_R) - 1\lsl_draws * (n - 1) + lsl_draws,cols(lsl_R) - 1|] = J(lsl_draws, 1, colsum(lsl_LnWres[|i,1\e,1|]))
+            lsl_R[|lsl_draws * (n - 1) + 1,cols(lsl_R) - 1\lsl_draws * (n - 1) + lsl_draws,cols(lsl_R) - 1|] = J(lsl_draws, 1, colsum(lsl_LnWres[|i,1\e,1|]) / lsl_SigmaW)
         }
         
         Un = J(c, 1, 0)
@@ -1641,7 +1642,7 @@ cap program drop lslogit_p
  */
 program define lslogit_p, rclass
     version 12
-    syntax newvarlist(min=1 max=4) [if] [in] [, pc1 xb DUdes WAGEs INCrease(numlist min=1 max=2) wrand(varname numeric)]
+    syntax newvarlist(min=1 max=4) [if] [in] [, pc1 xb DUdes WAGEs INCrease(numlist min=1 max=2) /*wrand(varname numeric)*/]
     
     
     //
@@ -1845,7 +1846,7 @@ program define lslogit_p, rclass
     // Generate Halton sequences
     local R_rvars = `rvars' + `e(wagep)' * `n_leisure' + !inlist("`e(taxreg_rmse)'", "", ".")
     mata: lsl_R = (`R_rvars' > 0 ? invnormal(halton(lsl_groups * lsl_draws, `R_rvars', 1 + lsl_burn)) : J(`nobs', 0, 0))
-    mata: randwage = ("`wrand'" != "" ? st_data(., "`wrand'") : J(`nobs', 1, 0))
+    //mata: randwage = ("`wrand'" != "" ? st_data(., "`wrand'") : J(`nobs', 1, 0))
     
     
     //
@@ -1862,11 +1863,7 @@ program define lslogit_p, rclass
         mata: lsl_Bsig   = sqrt(cross(lsl_LnWres, lsl_LnWres) / (colsum(lsl_Wobs) - lsl_bwage))     // Root MSE of wage equation
         
         // Build lower line of Cholesky matrix
-        if (`n_leisure' == 1) {
-            if      (`e(wagecorr)' == 1) mata: lsl_CholBW = lsl_B[lsl_iheck + 1] :* ((lsl_Rvars :== lsl_iC) :+ (lsl_Rvars :== lsl_iL1))'
-            else if (`e(wagecorr)' == 2) mata: lsl_CholBW = lsl_B[lsl_iheck + 1] :* (lsl_Rvars :== lsl_iC)' :+ ///
-                                                            lsl_B[lsl_iheck + 2] :* (lsl_Rvars :== lsl_iL1)'
-        }
+        mata: lsl_CholBW = (lsl_wagecorr > 0 ? lsl_B[|lsl_iheck + 1\lsl_iheck + lsl_bheck - 1|] : J(1, 0, 0))
         mata: lsl_CholW = diag(lsl_Bsig)
         
         // Calculate standard error of wage equation
@@ -1877,7 +1874,7 @@ program define lslogit_p, rclass
         return scalar sigma_w1 = `r(sigma_w1)'
         
         // Replace hourly wage rates
-        mata: lsl_Hwage = exp(lsl_LnWageHat :+ lsl_SigmaW:^2/2 :+ randwage :* lsl_SigmaW) :* (lsl_Hours[|1,1\.,1|] :!= 0)
+        mata: lsl_Hwage = exp(lsl_LnWageHat :+ lsl_SigmaW:^2/2 /*:+ randwage :* lsl_SigmaW*/) :* (lsl_Hours[|1,1\.,1|] :!= 0)
     }
     else mata: mata: lsl_CholW = diag(lsl_Sigma)
     
