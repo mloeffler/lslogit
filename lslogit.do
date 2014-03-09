@@ -1,5 +1,3 @@
-*! lslogit v0.3, 12aug2013
-
 /*****************************************************************************
  *
  * lslogit -- ESTIMATING MIXED LOGIT LABOR SUPPLY MODELS WITH STATA
@@ -13,6 +11,7 @@ cap program drop lslogit
 /**
  * Wrapper programm
  */
+*! version 0.3.1  03feb2014  Max Löffler
 program define lslogit
     version 12
     syntax [varlist] [if] [in] [fweight/] [, cov *]
@@ -58,7 +57,7 @@ program define lslogit_Replay
         if ("`e(wagep)'"      == "1")      local footnote "`footnote'" _newline "       - Wage prediction error integrated out"
         if ("`e(draws)'"      != "1")      local footnote "`footnote'" _newline "       - Approximated using `e(draws)' Halton sequences"
         if ("`e(wagevars)'"   != "")       local footnote "`footnote'" _newline "       - Joint labor supply and wage estimation"
-        if ("`e(wagecorr)'"   == "1")      local footnote "`footnote' with correlation"
+        if ("`e(wagecorr)'"   == "1")      local footnote "`footnote' with correlation (`e(wcorrvars)')"
         if ("`e(density)'"    != "")       local footnote "`footnote'" _newline "       - Accounted for choice density"
     }
     
@@ -689,9 +688,10 @@ program define lslogit_Estimate, eclass
     
     scalar lsl_dudes = .
     
-    if ("`debug'" != "") di as text "ml `method'`debug' lslogit_d2() `eq_consum' `eq_leisure' `eq_indeps' `eq_wages' `eq_boxcox' `eq_rands'"
-    ml model `method'`debug' lslogit_d2() `eq_consum' `eq_leisure' `eq_indeps' `eq_wages' `eq_boxcox' `eq_rands' ///
-            if `touse' `wgt', group(`group') `initopt' obs(`wgtnobs') search(off) iterate(`iterate') nopreserve max `difficult' `trace' `gradient' `hessian' technique(`technique')
+    local callcmd ml model `method'`debug' lslogit_d2() `eq_consum' `eq_leisure' `eq_indeps' `eq_wages' `eq_boxcox' `eq_rands' ///
+                        if `touse' `wgt', group(`group') `initopt' obs(`wgtnobs') search(off) iterate(`iterate') nopreserve max `difficult' `trace' `gradient' `hessian' technique(`technique')
+    if ("`debug'" != "" | "`verbose'" != "") di as text "`callcmd'"
+    `callcmd'
     
     //
     // Save results
@@ -947,19 +947,36 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     Brnd  = (rvars > 0 ? B[|irnd\irnd + brnd - 1|]    : J(0, 0, 0))     // Get auxiliary random coefficients
     
     // Build Cholesky matrix
-    CholB  = (lsl_corr ? lowertriangle(invvech(Brnd')) : diag(Brnd))    // Cholesky factors of coefficients vector
-    CholBW = (lsl_wagecorr > 0 ? B[|iheck + 1\iheck + bheck - 1|] : J(1, 0, 0))     // Cholesky factors between coefficients and wages
-    CholW  = diag(Bsig)                                                 // Cholesky factors of wage variances
+    CholB  = (lsl_corr ? lowertriangle(invvech(Brnd')) : diag(Brnd))            // Cholesky factors of coefficients vector
+    CholBW = (lsl_wagecorr > 0 ? B[|iheck + 1\iheck + bheck - 1|] : J(1, 0, 0)) // Cholesky factors between coefficients and wages
+    CholW  = diag(Bsig)                                                         // Cholesky factors of wage variances
     
     // DEBUG (works only for singles!)
-    /*
-    if (nlei == 1) {
-        if      (lsl_wagecorr == 1) CholBW = B[iheck + 1] :* ((lsl_Rvars :== iC) :+ (lsl_Rvars :== iL1))'
-        else if (lsl_wagecorr == 2) CholBW = B[iheck + 1] :* (lsl_Rvars :== iC)' :+
-                                             B[iheck + 2] :* (lsl_Rvars :== iL1)'
+    if (lsl_wagecorr > 0 & lsl_Wcorrvars != lsl_Rvars) {
+        if (nlei == 1) {
+            // Cholesky factors between coefficients and wages
+            CholBW = J(1, 0, 0)
+            real scalar v, w, s
+            s = 1
+            for (v = 1; v <= rows(lsl_Wcorrvars); v++) {
+                for (w = s; w <= rows(lsl_Rvars); w++) {
+                    if (lsl_Wcorrvars[v] == lsl_Rvars[w]) {
+                        CholBW = CholBW, B[|iheck + v\iheck + bheck - 1|]
+                        s = w + 1
+                        break
+                    }
+                    else CholBW = CholBW, 0
+                }
+            }
+            CholBW = CholBW, J(1, rows(lsl_Rvars) - cols(CholBW), 0)
+            /*
+            if      (lsl_wagecorr == 1) CholBW = B[iheck + 1] :* ((lsl_Rvars :== iC) :+ (lsl_Rvars :== iL1))'
+            else if (lsl_wagecorr == 2) CholBW = B[iheck + 1] :* (lsl_Rvars :== iC)' :+
+                                                 B[iheck + 2] :* (lsl_Rvars :== iL1)'
+            */
+        }
+        else "DEBUG!"
     }
-    else if (lsl_wagecorr) "DEBUG!"
-    */
     // DEBUG
     
     // Calculate wage variance (by Cholesky or just the coefficient)
@@ -1209,7 +1226,23 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                                                                                                                - colsum(lsl_Wobs[|i,1\e,1|] :* LnWresPur[|i,1\e,.|]) * Bsig^2 / SigmaW^3))
                         //DWdBsig   = Wn :* ((1 - lsl_residanchor) * lsl_R[iRV,nRV] :+ Bsig)
                         //if (lsl_wagecorr > 0) DWdBwcorr = Wn :* (CholBW :+ lsl_R[|iRV,1\iRV,rvars|] :- (colsum(lsl_Wobs[|i,1\e,1|]) == 1 & lsl_residanchor == 1) :* colsum(lsl_Wobs[|i,1\e,1|] :* LnWresPur[|i,1\e,.|]) :* Bsig :* CholBW :/ SigmaW^3)
-                        if (lsl_wagecorr > 0) DWdBwcorr = cross(Wn', CholBW :+ lsl_R[|iRV,1\iRV,rvars|] :- (colsum(lsl_Wobs[|i,1\e,1|]) == 1 & lsl_residanchor == 1) :* colsum(lsl_Wobs[|i,1\e,1|] :* LnWresPur[|i,1\e,.|]) :* Bsig :* CholBW :/ SigmaW^3)
+                        if (lsl_wagecorr > 0) {
+                            if (lsl_Wcorrvars == lsl_Rvars) DWdBwcorr = cross(Wn', CholBW :+ lsl_R[|iRV,1\iRV,rvars|] :- (colsum(lsl_Wobs[|i,1\e,1|]) == 1 & lsl_residanchor == 1) :* colsum(lsl_Wobs[|i,1\e,1|] :* LnWresPur[|i,1\e,.|]) :* Bsig :* CholBW :/ SigmaW^3)
+                            else {
+                                DWdBwcorr = J(1, 0, 0)
+                                s = 1
+                                for (v = 1; v <= rows(lsl_Wcorrvars); v++) {
+                                    for (w = s; w <= rows(lsl_Rvars); w++) {
+                                        if (lsl_Wcorrvars[v] == lsl_Rvars[w]) {
+                                            DWdBwcorr = DWdBwcorr, CholBW[w] :+ lsl_R[iRV,w] :- (colsum(lsl_Wobs[|i,1\e,1|]) == 1 & lsl_residanchor == 1) :* colsum(lsl_Wobs[|i,1\e,1|] :* LnWresPur[|i,1\e,.|]) :* Bsig :* CholBW[w] :/ SigmaW^3
+                                            s = w + 1
+                                            break
+                                        }
+                                    }
+                                }
+                                DWdBwcorr = cross(Wn', DWdBwcorr)
+                            }
+                        }
                         /*
                         if      (lsl_wagecorr == 1) DWdBwcorr = Wn :* (rowsum(lsl_R[|iRV,1\iRV,rvars|] :* ((lsl_Rvars :== iC) :+ (lsl_Rvars :== iL1))') :+ B[iheck + 1])
                         else if (lsl_wagecorr == 2) DWdBwcorr = cross(Wn', ((rowsum(lsl_R[|iRV,1\iRV,rvars|] :* (lsl_Rvars :== iC )') :+ B[iheck + 1]),
@@ -1626,6 +1659,7 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
         else if (opt[a] == "xb")    result[.,a] = U
         else if (opt[a] == "dudes") result[.,a] = D
     }
+    if (opt[cols(opt)] == "wages") result = result[|1,1\.,cols(opt)-1|]
     st_store(., newvar, touse, result)
 }
 
@@ -1858,12 +1892,33 @@ program define lslogit_p, rclass
         // Predict wages
         mata: lsl_LnWageHat = cross((st_data(., tokens("`e(wagevars)'")), J(`nobs', 1, 1))', lsl_Bwage')
 
-        // Adjust wage variance and wage vector
-        mata: lsl_LnWres = lsl_Wobs :* (log(lsl_Hwage) :- lsl_LnWageHat)                            // Including wage equation
-        mata: lsl_Bsig   = sqrt(cross(lsl_LnWres, lsl_LnWres) / (colsum(lsl_Wobs) - lsl_bwage))     // Root MSE of wage equation
+        // Get wage equation residuals
+        mata: lsl_LnWres = lsl_Wobs :* (log(lsl_Hwage) :- lsl_LnWageHat)
+        
+        // Root MSE of wage equation if not estimated simultaneously
+        if (inlist("`e(wagecorr)'", "", "0")) mata: lsl_Bsig = sqrt(cross(lsl_LnWres, lsl_LnWres) / (colsum(lsl_Wobs) - lsl_bwage))
         
         // Build lower line of Cholesky matrix
-        mata: lsl_CholBW = (lsl_wagecorr > 0 ? lsl_B[|lsl_iheck + 1\lsl_iheck + lsl_bheck - 1|] : J(1, 0, 0))
+        if ("`e(wcorrvars)'" == "`e(randvars)'") mata: lsl_CholBW = (lsl_wagecorr > 0 ? lsl_B[|lsl_iheck + 1\lsl_iheck + lsl_bheck - 1|] : J(1, 0, 0))
+        else {
+            // Cholesky factors between coefficients and wages
+            // Correlation structure different from random coefficients
+            mata: lsl_CholBW = J(1, 0, 0)
+            local v = 1
+            local fullcorrlist `e(randvars)'
+            foreach vt in `e(wcorrvars)' {
+                foreach wt in `fullcorrlist' {
+                    if ("`vt'" == "`wt'") {
+                        mata: lsl_CholBW = lsl_CholBW, lsl_B[lsl_iheck + `v']
+                        local fullcorrlist = subinstr(" `fullcorrlist' ", " `vt' ", " ", .)
+                        continue, break
+                    }
+                    else mata: lsl_CholBW = lsl_CholBW, 0
+                }
+                local v = `v' + 1
+            }
+            mata: lsl_CholBW = lsl_CholBW, J(1, lsl_rvars - cols(lsl_CholBW), 0)
+        }
         mata: lsl_CholW = diag(lsl_Bsig)
         
         // Calculate standard error of wage equation
