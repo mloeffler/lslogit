@@ -1864,29 +1864,73 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
     external real scalar    lsl_boxcc
     external real scalar    lsl_lC, lsl_lL1, lsl_lL2
 
-    external real matrix    lsl_X               // Right hand side variables
-    external real scalar    lsl_groups          // Number of groups
-    external real scalar    lsl_draws           // Number of random draws
-    external real colvector lsl_Y               // Left hand side variable
-    external real matrix    lsl_J               // Panel setup information
-    external real matrix    lsl_R               //   Halton sequences
-    external real colvector lsl_Rvars           // Random coefficients
-    external real scalar    lsl_rvars           // Number of random coefficients
-    external real scalar    lsl_corr            //   Enable correlation?
-    external string scalar  lsl_ufunc           // Functional form
-    external real scalar    lsl_wagep           // Wage Prediction Error?
-    external real matrix    lsl_Wpred           //   Prediction dummies
-    external real colvector lsl_Days            //   Number of days per tax year
-    external real matrix    lsl_Hwage           //   Hourly wage rates
-    external real rowvector lsl_Sigma           //   Variance of the wage regression
-    external real rowvector lsl_SigmaW           //   Variance of the wage regression (buggy?)
-    external real matrix    lsl_Hours           //   Hours of work
-    external real rowvector lsl_TaxregB         // Tax Regression
-    external real matrix    lsl_TaxregVars      //   Wage independent variables of tax regression
-    external real matrix    lsl_TaxregIas1      //   Wage interaction variables of tax regression
-    external real matrix    lsl_TaxregIas2      //   Wage interaction variables of tax regression
-    external real matrix    lsl_taxreg_rmse     //
-    external real scalar    lsl_round           // To round, or not to round.
+    // Right hand side variables
+    external real matrix    lsl_X
+
+    // Number of groups
+    external real scalar    lsl_groups
+
+    // Number of random draws
+    external real scalar    lsl_draws
+
+    // Left hand side variable
+    external real colvector lsl_Y
+
+    // Panel setup information
+    external real matrix    lsl_J
+
+    //   Halton sequences
+    external real matrix    lsl_R
+
+    // Random coefficients
+    external real colvector lsl_Rvars
+
+    // Number of random coefficients
+    external real scalar    lsl_rvars
+
+    //   Enable correlation?
+    external real scalar    lsl_corr
+
+    // Functional form
+    external string scalar  lsl_ufunc
+
+    // Wage Prediction Error?
+    external real scalar    lsl_wagep
+
+    //   Prediction dummies
+    external real matrix    lsl_Wpred
+
+    //   Number of days per tax year
+    external real colvector lsl_Days
+
+    //   Hourly wage rates
+    external real matrix    lsl_Hwage
+
+    //   Variance of the wage regression
+    external real rowvector lsl_Sigma
+
+    //   Variance of the wage regression (buggy?)
+    external real rowvector lsl_SigmaW
+
+    //   Hours of work
+    external real matrix    lsl_Hours
+
+    // Tax Regression
+    external real rowvector lsl_TaxregB
+
+    //   Wage independent variables of tax regression
+    external real matrix    lsl_TaxregVars
+
+    //   Wage interaction variables of tax regression
+    external real matrix    lsl_TaxregIas1
+
+    //   Wage interaction variables of tax regression
+    external real matrix    lsl_TaxregIas2
+
+    external real matrix    lsl_taxreg_rmse
+
+    // To round, or not to round.
+    external real scalar    lsl_round
     external real scalar    lsl_joint
     external real scalar    lsl_residanchor
     external real matrix    lsl_LnWres
@@ -1899,33 +1943,45 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
     external real colvector lsl_L1
     external real matrix    lsl_LX1
     external real matrix    lsl_L2X1
-    external real matrix    lsl_L2       // Buggy, L2 is colvector in fact
     external real matrix    lsl_LX2
     external real matrix    lsl_L2X2
     external real matrix    lsl_Xind
 
+    // Buggy, L2 is colvector in fact
+    external real matrix    lsl_L2
+
     real scalar    nobs, n, r, i, e, c, iRV, nRV, wp, ncons, lsum, lnf,
+                   getutils, getprobs, getdudes
     real colvector U, P, D, Un, Pn, Unr, Enr, Pnr, C, L1, BcC, BcL1, Yn
     real rowvector Beta, Zeta, Bsig
-    real matrix CholB, Xnr, CX, C2X, LX1, L2X1, L2, BcL2, LX2, L2X2, Xind, Wn, Mwage, TaxregX1, TaxregX2, TaxregX, Dude
+    real matrix    CholB, Xnr, CX, C2X, LX1, L2X1, L2, BcL2, LX2, L2X2, Xind,
+                   Wn, Mwage, TaxregX1, TaxregX2, TaxregX, Dude
 
-    i     = 1            // Indicates first observation of active group
-    nobs  = rows(lsl_Y)  // Number of observations
+    // Indicates first observation of active group
+    i = 1
+
+    // Number of observations
+    nobs  = rows(lsl_Y)
     nRV   = lsl_rvars + 1
     ncons = cols(lsl_CX) + cols(lsl_C2X) + 1 + cols(lsl_L2)
 
     // Initialize
     lnf = 0
-    U = J(nobs, 1, 0)
-    P = J(nobs, 1, 0)
-    D = J(nobs, 1, 0)
+    U   = J(nobs, 1, 0)
+    P   = J(nobs, 1, 0)
+    D   = J(nobs, 1, 0)
 
-    getutils = (sum(opt :== "xb") == 1)
-    getprobs = (sum(opt :== "pc1") == 1)
+    // Which options have been selected?
+    getutils = (sum(opt :== "xb")    == 1)
+    getprobs = (sum(opt :== "pc1")   == 1)
     getdudes = (sum(opt :== "dudes") == 1)
+
+    // Need to calculate Dude shares? Initialize
     if (getdudes == 1) Dude = J(nobs, lsl_draws, 0)
 
-    CholB = (lsl_corr == 1 ? lowertriangle(invvech(lsl_Brnd')) : diag(lsl_Brnd'))   // Build variance-(covariance) matrix
+    // Build variance-(covariance) matrix
+    CholB = (lsl_corr == 1 ? lowertriangle(invvech(lsl_Brnd'))
+                           : diag(lsl_Brnd'))
 
     // Initialize random coefficients vector
     if (lsl_rvars > 0) {
@@ -1933,6 +1989,7 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
         Zeta[.,lsl_Rvars] = cross(lsl_R[|1,1\.,lsl_rvars|]', CholB')
     }
 
+    // Loop over individuals
     for (n = 1; n <= lsl_groups; n++) {
         i   = lsl_J[n,1]
         e   = lsl_J[n,2]
@@ -1961,8 +2018,7 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
                 BcL2 = lsl_boxcox(L2, lsl_lL2)
             }
         }
-        wp   = (lsl_wagep & sum(lsl_Wpred[|i,1\e,.|]) > 0)
-        nrep = (lsl_rvars > 0 | wp ? lsl_draws : 1)
+        wp = (lsl_wagep & sum(lsl_Wpred[|i,1\e,.|]) > 0)
 
         // Use residual anchor?
         if (lsl_residanchor & lsl_joint & wp & colsum(lsl_Wobs[|i,1\e,1|]) == 1) {
@@ -1970,11 +2026,14 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
         }
 
         lsum = 0
-        Un = J(c, 1, 0)
-        Pn = J(c, 1, 0)
-        for (r = 1; r <= nrep; r++) {
+        Un   = J(c, 1, 0)
+        Pn   = J(c, 1, 0)
+
+        // Loop over draws
+        for (r = 1; r <= lsl_draws; r++) {
             // Indicates the active Halton sequence
-            iRV  = lsl_draws * (n - 1) + r
+            iRV = lsl_draws * (n - 1) + r
+
             if (wp | lsl_joint) {
 
                 //
@@ -2025,7 +2084,10 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
             // Calculate systematic utility and choice probability
             Unr = cross(Xnr', Beta')
             if (getprobs == 1) {
-                Enr = exp(Unr :+ colmin(-mean(Unr) \ 700 :- colmax(Unr)))   // Standardize to avoid missings
+                // Standardize to avoid missings
+                Enr = exp(Unr :+ colmin(-mean(Unr) \ 700 :- colmax(Unr)))
+
+                // Calculate choice probability
                 Pnr = Enr :/ colsum(Enr)
 
                 // Recall "predicted" probability that choice is chosen
@@ -2034,10 +2096,19 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
 
             // Calculate dudes
             if (getdudes == 1) {
-                if    (lsl_ufunc == "boxcox") Dude[|i,r\e,(nrep == 1 ? . : r)|] = cross((CX, lsl_boxcox(L1, lsl_lL1), lsl_boxcox(L2, lsl_lL2))', Beta[|1\ncons|]') :*
-                                                                                  (reldif(lsl_lC, 0) >= 1e-25 ? C:^(lsl_lC - 1) : (1 :/ C))
-                else if (lsl_ufunc == "quad") Dude[|i,r\e,(nrep == 1 ? . : r)|] = cross((CX, 2 :* C2X :* C, L1, L2)', Beta[|1\ncons|]')
-                else if (lsl_ufunc == "tran") Dude[|i,r\e,(nrep == 1 ? . : r)|] = cross((CX, 2 :* C2X :* log(C), log(L1), log(L2))', Beta[|1\ncons|]') :/ C
+                if (lsl_ufunc == "boxcox") {
+                    Dude[|i,r\e,r|] = cross((CX, lsl_boxcox(L1, lsl_lL1),
+                                             lsl_boxcox(L2, lsl_lL2))',
+                                            Beta[|1\ncons|]') :*
+                                       (reldif(lsl_lC, 0) >= 1e-25
+                                          ? C:^(lsl_lC - 1) : (1 :/ C))
+                } else if (lsl_ufunc == "quad") {
+                    Dude[|i,r\e,r|] = cross((CX, 2 :* C2X :* C, L1, L2)',
+                                            Beta[|1\ncons|]')
+                } else if (lsl_ufunc == "tran") {
+                    Dude[|i,r\e,r|] = cross((CX, 2 :* C2X :* log(C), log(L1),
+                                             log(L2))', Beta[|1\ncons|]') :/ C
+                }
             }
 
             // Sum up
@@ -2049,9 +2120,9 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
         lnf = lnf + lsl_Weight[i] * log(max((lsum, 1e-25)) / lsl_draws)
 
         // Next household
-        if (getutils == 1) U[|i\e|] = Un :/ nrep
-        if (getprobs == 1) P[|i\e|] = Pn :/ nrep
-        if (getdudes == 1) D[|i\e|] = rowsum(Dude[|i,1\e,.|] :< 0) :/ nrep
+        if (getutils == 1) U[|i\e|] = Un :/ lsl_draws
+        if (getprobs == 1) P[|i\e|] = Pn :/ lsl_draws
+        if (getdudes == 1) D[|i\e|] = rowsum(Dude[|i,1\e,.|] :< 0) :/ lsl_draws
     }
 
     // Print calculated ("predicted") log-likelihood
@@ -2078,12 +2149,16 @@ cap program drop lslogit_p
 /**
  * Conditional Logit but integrating out wage prediction errors (Wrapper programm)
  *
- * @param `xb'  Predict systematic utility
- * @param `pc1' Predict choice probabilities
+ * @param `pc1'      Predict choice probabilities
+ * @param `xb'       Predict systematic utility
+ * @param `dudes'    Predict approx. probability of negative marginal utility
+ * @param `wages'    Predict wage rates (only for joint estimation)
+ * @param `increase' Increase estimated wage rate by x % before prediction
  */
 program define lslogit_p, rclass
     version 12
-    syntax newvarlist(min=1 max=4) [if] [in] [, pc1 xb DUdes WAGEs INCrease(numlist min=1 max=2) /*wrand(varname numeric)*/]
+    syntax newvarlist(min=1 max=4) [if] [in] [, pc1 xb DUdes WAGEs ///
+                                                INCrease(numlist min=1 max=1)]
 
 
     //
@@ -2105,11 +2180,13 @@ program define lslogit_p, rclass
         exit 498
     }
     else if ("`wages'" != "" & "`increase'" != "") {
-        di in r "No, that's not gonna happen. I can either predict wages or increase wages, it's up to you."
+        di in r "No, that's not gonna happen. I can either predict wages " ///
+                "or increase wages, it's up to you."
         exit 498
     }
     else if (`n_wincrea' > 0 & `n_wincrea' != `n_leisure') {
-        di in r "I've got `n_leisure' guys but `n_wincrea' wage increases!? Seriously?"
+        di in r "I've got `n_leisure' guys but `n_wincrea' wage " ///
+                "increases!? Seriously?"
         exit 498
     }
     else if (`n_varlist' == `n_optlist') {
@@ -2127,11 +2204,15 @@ program define lslogit_p, rclass
 
     // Mark the estimation sample
     marksample touse, novarlist
-    markout `touse' `e(depvar)' `e(group)' `e(consum)' `e(leisure)' `e(cx)' `e(lx1)' `e(lx2)' `e(c2x)'  ///
-                    `e(l2x1)' `e(l2x2)' `e(indeps)' `e(wagepred)' `e(days)' `e(tria1)' `e(tria2)' `e(wagevars)'
+    markout `touse' `e(depvar)' `e(group)' `e(consum)' `e(leisure)' `e(cx)' ///
+                    `e(lx1)' `e(lx2)' `e(c2x)' `e(l2x1)' `e(l2x2)'          ///
+                    `e(indeps)' `e(wagepred)' `e(days)' `e(tria1)'          ///
+                    `e(tria2)' `e(wagevars)'
+
+    // Sort sample by households / BUGGY / DEBUG
+    qui sort `e(group)'
 
     // Restrict sample to those of interest
-    qui sort `e(group)' // BUGGY
     preserve
     qui keep if `touse'
     qui count
@@ -2163,28 +2244,81 @@ program define lslogit_p, rclass
     // Move data to Mata
     //
 
-    mata: lsl_B     = st_matrix("e(b)")                                                                     // Coefficient vector
-    mata: lsl_Y     = st_data(., "`e(depvar)'")                                                             // Dependent variable
-    mata: lsl_ufunc = "`e(ufunc)'"                                                                          // Utility function
-    mata: lsl_nlei  = `n_leisure'                                                                           // Number of individuals in household
-    mata: lsl_joint = ("`e(joint)'" == "joint")                                                             // Number of random coefficients
-    mata: lsl_rvars = `rvars'                                                                               // Number of random coefficients
-    mata: lsl_Rvars = ("`e(randvars)'" != "" ? strtoreal(tokens("`e(randvars)'"))' : J(0, 1, 0))            // Random coefficients
-    mata: lsl_corr  = ("`e(randvars)'" != "" & "`e(corr)'" == "1" ? 1 : 0)                                  // Correlation?
-    mata: lsl_draws = strtoreal("`e(draws)'")                                                               // Number of draws
-    mata: lsl_burn  = strtoreal("`e(burn)'")                                                                // Number of draws to burn
-    mata: lsl_Hwage = ("`e(hwage)'" != "" ? st_data(., tokens("`e(hwage)'")) : J(`nobs', lsl_nlei, 0))      // Hourly wage rates
-    mata: lsl_Wobs  = (lsl_Y :* (log(lsl_Hwage) :< .))                                                      // Wage observed?
-    mata: lsl_wagep = `e(wagep)'                                                                            // Run Wage Prediction
-    mata: lsl_Sigma = ("`e(wagesigma)'" != "" ? strtoreal(tokens("`e(wagesigma)'")) : J(1, `n_leisure', 0))
-    mata: lsl_round = ("`e(round)'" == "1")                                                                 // To round, or not to round?
-    mata: lsl_wagecorr    = ("`e(wagecorr)'" != "" ? strtoreal("`e(wagecorr)'") : 0)                        // Wage/preference correlation?
-    mata: lsl_residanchor = ("`e(residanchor)'" == "1")                                                     // Wage/preference correlation anchor?
-    mata: lsl_J      = panelsetup(st_data(., "`e(group)'"), 1)                                  // Choices per group
-    mata: lsl_groups = rows(lsl_J)                                                              // Number of groups
-    mata: lsl_Wpred  = (lsl_wagep ? (strtrim("`e(wagepred)'") != "" ? st_data(., "`e(wagepred)'") : J(`nobs', lsl_nlei, 1)) : J(`nobs', lsl_nlei, 0))  // Dummies enabling or disabling the wage prediction
-    mata: lsl_Days   = ("`e(days)'" != "" ? st_data(., "`e(days)'") : J(`nobs', 1, 365))        // Days of taxyear
+    // Coefficient vector
+    mata: lsl_B     = st_matrix("e(b)")
 
+    // Dependent variable
+    mata: lsl_Y     = st_data(., "`e(depvar)'")
+
+    // Functional form of utility function
+    mata: lsl_ufunc = "`e(ufunc)'"
+
+    // Number of individuals in household
+    mata: lsl_nlei  = `n_leisure'
+
+    // Number of random coefficients
+    mata: lsl_joint = ("`e(joint)'" == "joint")
+
+    // Number of random coefficients
+    mata: lsl_rvars = `rvars'
+
+    // Random coefficients
+    mata: lsl_Rvars = ("`e(randvars)'" != ""                   ///
+                         ? strtoreal(tokens("`e(randvars)'"))' ///
+                         : J(0, 1, 0))
+
+    // Correlation?
+    mata: lsl_corr  = ("`e(randvars)'" != "" & "`e(corr)'" == "1" ? 1 : 0)
+
+    // Number of draws
+    mata: lsl_draws = strtoreal("`e(draws)'")
+
+    // Number of draws to burn
+    mata: lsl_burn  = strtoreal("`e(burn)'")
+
+    // Hourly wage rates
+    mata: lsl_Hwage = ("`e(hwage)'" != ""                   ///
+                         ? st_data(., tokens("`e(hwage)'")) ///
+                         : J(`nobs', lsl_nlei, 0))
+
+    // Wage observed?
+    mata: lsl_Wobs  = (lsl_Y :* (log(lsl_Hwage) :< .))
+
+    // Run Wage Prediction
+    mata: lsl_wagep = `e(wagep)'
+    mata: lsl_Sigma = ("`e(wagesigma)'" != ""                  ///
+                         ? strtoreal(tokens("`e(wagesigma)'")) ///
+                         : J(1, `n_leisure', 0))
+
+    // To round, or not to round?
+    mata: lsl_round = ("`e(round)'" == "1")
+
+    // Wage/preference correlation?
+    mata: lsl_wagecorr    = ("`e(wagecorr)'" != "" ///
+                               ? strtoreal("`e(wagecorr)'") : 0)
+
+    // Wage/preference correlation anchor?
+    mata: lsl_residanchor = ("`e(residanchor)'" == "1")
+
+    // Choices per group
+    mata: lsl_J      = panelsetup(st_data(., "`e(group)'"), 1)
+
+    // Number of groups
+    mata: lsl_groups = rows(lsl_J)
+
+    // Dummies enabling or disabling the wage prediction
+    mata: lsl_Wpred  = (lsl_wagep ? (strtrim("`e(wagepred)'") != ""  ///
+                                       ? st_data(., "`e(wagepred)'") ///
+                                       : J(`nobs', lsl_nlei, 1))     ///
+                                  : J(`nobs', lsl_nlei, 0))
+
+    // Days of taxyear
+    mata: lsl_Days   = ("`e(days)'" != "" ? st_data(., "`e(days)'") ///
+                                          : J(`nobs', 1, 365))
+
+    // Weights?
+    mata: lsl_Weight = ("`e(weight)'" != "" ? st_data(., "`e(weight)'") ///
+                                            : J(`nobs', 1, 1))
 
     //
     // Build coefficients vector
