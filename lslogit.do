@@ -1618,7 +1618,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
 
                     DUdwage = DUdC :* DCdM :* DMdH :* (DWdBw, DWdBsig)
 
-                    if (lsl_residanchor) {
+                    if (lsl_residanchor & lsl_wagecorr) {
                         DUdwage[|1,1\c,bwage|] = DUdwage[|1,1\c,bwage|] :-
                                                  cross(cross(DUdB[.,lsl_Wcorrvars]',
                                                              B[|iheck + 1\iheck + bheck - 1|]')',
