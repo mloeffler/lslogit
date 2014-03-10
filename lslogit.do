@@ -921,6 +921,7 @@ program define lslogit_Estimate, eclass
     if ("`wagepred'" != "") ereturn local wagepred `wagepred'
     if ("`hwage'"    != "") ereturn local hwage    `hwage'
     if ("`days'"     != "") ereturn local days     `days'
+    if ("`wgtvar'"   != "") ereturn local weight   `wgtvar'
 
     // Box-Cox
     if ("`ufunc'" == "boxcox") {
@@ -1890,6 +1891,7 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
     external real scalar    lsl_residanchor
     external real matrix    lsl_LnWres
     external real matrix    lsl_Wobs
+    external real colvector lsl_Weight
 
     external real colvector lsl_C
     external real matrix    lsl_CX
@@ -1902,8 +1904,8 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
     external real matrix    lsl_L2X2
     external real matrix    lsl_Xind
 
-    real scalar nobs, n, r, i, e, c, iRV, nRV, nrep, wp, ncons, getutils, getprobs, getdudes
-    real colvector U, P, D, Un, Pn, Unr, Enr, Pnr, C, L1, BcC, BcL1
+    real scalar    nobs, n, r, i, e, c, iRV, nRV, wp, ncons, lsum, lnf,
+    real colvector U, P, D, Un, Pn, Unr, Enr, Pnr, C, L1, BcC, BcL1, Yn
     real rowvector Beta, Zeta, Bsig
     real matrix CholB, Xnr, CX, C2X, LX1, L2X1, L2, BcL2, LX2, L2X2, Xind, Wn, Mwage, TaxregX1, TaxregX2, TaxregX, Dude
 
@@ -1912,6 +1914,8 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
     nRV   = lsl_rvars + 1
     ncons = cols(lsl_CX) + cols(lsl_C2X) + 1 + cols(lsl_L2)
 
+    // Initialize
+    lnf = 0
     U = J(nobs, 1, 0)
     P = J(nobs, 1, 0)
     D = J(nobs, 1, 0)
@@ -1933,6 +1937,7 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
         i   = lsl_J[n,1]
         e   = lsl_J[n,2]
         c   = e - i + 1
+        Yn  = lsl_Y[|i,1\e,.|]
         Xnr = lsl_X[|i,1\e,.|]
 
         // Fetch needed right hand side parts
@@ -1964,6 +1969,7 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
             lsl_R[|lsl_draws * (n - 1) + 1,cols(lsl_R) - 1\lsl_draws * (n - 1) + lsl_draws,cols(lsl_R) - 1|] = J(lsl_draws, 1, colsum(lsl_LnWres[|i,1\e,1|]) / lsl_SigmaW)
         }
 
+        lsum = 0
         Un = J(c, 1, 0)
         Pn = J(c, 1, 0)
         for (r = 1; r <= nrep; r++) {
@@ -2021,6 +2027,9 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
             if (getprobs == 1) {
                 Enr = exp(Unr :+ colmin(-mean(Unr) \ 700 :- colmax(Unr)))   // Standardize to avoid missings
                 Pnr = Enr :/ colsum(Enr)
+
+                // Recall "predicted" probability that choice is chosen
+                lsum = lsum + cross(Yn, Pnr)
             }
 
             // Calculate dudes
@@ -2036,11 +2045,17 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
             if (getprobs == 1) Pn = Pn :+ Pnr
         }
 
+        // Add up to "predicted" log-likelihood
+        lnf = lnf + lsl_Weight[i] * log(max((lsum, 1e-25)) / lsl_draws)
+
         // Next household
         if (getutils == 1) U[|i\e|] = Un :/ nrep
         if (getprobs == 1) P[|i\e|] = Pn :/ nrep
         if (getdudes == 1) D[|i\e|] = rowsum(Dude[|i,1\e,.|] :< 0) :/ nrep
     }
+
+    // Print calculated ("predicted") log-likelihood
+    if (getprobs == 1) lnf
 
     // Store prediction
     real matrix result
@@ -2360,7 +2375,12 @@ program define lslogit_p, rclass
     }
 
     // Run evaluator and predict pc1/xb/dudes/...
-    if (!inlist(trim("`opt'"), "", "wages")) mata: lslogit_p(tokens("`varlist'"), "`touse'", tokens("`opt'"))
+    if (!inlist(trim("`opt'"), "", "wages")) {
+        if ("`pc1'" != "" | "`opt'" == "pc1") {
+            di as text "Estimated ll=`=round(e(ll), 0.0001)'. Now ... "
+        }
+        mata: lslogit_p(tokens("`varlist'"), "`touse'", tokens("`opt'"))
+    }
 
 
     //
