@@ -1434,8 +1434,11 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
             iRV  = lsl_draws * (n - 1) + r
 
             // Build (random?) coefficients matrix (DEBUG HERE!)
-            Zeta[iRV,lsl_Rvars] = cross(lsl_R[|iRV,1\iRV,lsl_wagep * nlei + rvars|]',
-                                        (CholBW', CholB)')
+            if (brnd > 0) {
+                Zeta[iRV,lsl_Rvars] =
+                    cross(lsl_R[|iRV,1\iRV,lsl_wagep * nlei + rvars|]',
+                          (CholBW', CholB)')
+            }
             Beta = Bfix :+ (brnd > 0 ? Zeta[iRV,.] : 0)
 
 
