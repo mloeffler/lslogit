@@ -2358,8 +2358,7 @@ program define lslogit_p, rclass
                          : J(0, 0, 0))
 
     //   Cholesky factor of wage variance
-    mata: lsl_Bsig  = (lsl_bheck > 0 ? lsl_B[lsl_iheck]
-                                     : J(0, 0, 0))
+    mata: lsl_Bsig  = (lsl_bheck > 0 ? lsl_B[lsl_iheck] : J(0, 0, 0))
 
     // Get auxiliary random coefficients
     mata: lsl_Brnd  = (lsl_rvars > 0                                 ///
@@ -2417,7 +2416,7 @@ program define lslogit_p, rclass
                                    : J(`nobs', 0, 0)), J(`nobs', 1, 1))
             mata: lsl_L2X`i' = ((`n_l2x`i'ias' > 0                     ///
                                    ? st_data(., tokens("`e(l2x`i')'")) ///
-                                   : J(`nobs', 0, 0)),
+                                   : J(`nobs', 0, 0)),                 ///
                                 J(`nobs', (lsl_ufunc != "boxcox" ? 1 : 0), 1))
         }
         else {
