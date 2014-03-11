@@ -1991,10 +1991,6 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
     // Need to calculate Dude shares? Initialize
     if (getdudes == 1) Dude = J(nobs, lsl_draws, 0)
 
-    // Build variance-(covariance) matrix
-    CholB = (lsl_corr == 1 ? lowertriangle(invvech(lsl_Brnd'))
-                           : diag(lsl_Brnd'))
-
     // Initialize random coefficients vector
     if (lsl_rvars > 0) {
         Zeta = J(rows(lsl_R), lsl_bfix, 0)
