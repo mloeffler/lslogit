@@ -2150,6 +2150,7 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
     if (getprobs == 1) {
         if (lsl_joint) lnf = lnf + cross(lsl_Wobs, log(normalden(lsl_LnWres :/ lsl_SigmaW))
                                                    :- log(lsl_SigmaW))
+        st_numscalar("lsl_ll_p", lnf)
         round(lnf, .0001)
     }
 
@@ -2552,7 +2553,7 @@ program define lslogit_p, rclass
 
         // Calculate standard error of wage equation
         mata: lsl_SigmaW = (lsl_wagecorr ? sqrt(rowsum(lsl_CholW:^2))' ///
-                              : lsl_Bsig)
+                                         : lsl_Bsig)
 
         // Store error
         mata: st_numscalar("r(sigma_w1)", lsl_SigmaW)
@@ -2602,10 +2603,19 @@ program define lslogit_p, rclass
 
     // Run evaluator and predict pc1/xb/dudes/...
     if (!inlist(trim("`opt'"), "", "wages")) {
+        // Print estimated log-likelihood
         if ("`pc1'" != "" | "`opt'" == "pc1") {
             di as text "Estimated ll=`=round(e(ll), 0.0001)'. Now ... " _c
         }
+
+        // Run prediction
         mata: lslogit_p(tokens("`varlist'"), "`touse'", tokens("`opt'"))
+
+        // Store estimated and predicted likelihood
+        if ("`pc1'" != "" | "`opt'" == "pc1") {
+            return scalar ll_e = `e(ll)'
+            return scalar ll_p = lsl_ll_p
+        }
     }
 
 
