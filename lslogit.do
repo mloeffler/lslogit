@@ -60,29 +60,29 @@ program define lslogit_Replay
             local footnote "`footnote' - Box-Cox utility function"
         }
         if ("`e(randvars)'" != "") {
-            local footnote "`footnote'" _newline "       "
+            local footnote "`footnote'" _newline "       " ///
                            "- Random coefficients (`e(randvars)')"
         }
         if ("`e(corr)'" == "1") {
             local footnote "`footnote' with correlation"
         }
         if ("`e(wagep)'" == "1") {
-            local footnote "`footnote'" _newline "       "
+            local footnote "`footnote'" _newline "       " ///
                            "- Wage prediction error integrated out"
         }
         if ("`e(draws)'" != "1") {
-            local footnote "`footnote'" _newline "       "
+            local footnote "`footnote'" _newline "       " ///
                            "- Approximated using `e(draws)' Halton sequences"
         }
         if ("`e(wagevars)'" != "") {
-            local footnote "`footnote'" _newline "       "
+            local footnote "`footnote'" _newline "       " ///
                            "- Joint labor supply and wage estimation"
         }
         if ("`e(wagecorr)'" != "") {
             local footnote "`footnote' with correlation (`e(wcorrvars)')"
         }
         if ("`e(density)'" != "") {
-            local footnote "`footnote'" _newline "       "
+            local footnote "`footnote'" _newline "       " ///
                            "- Accounted for choice density"
         }
     }
@@ -1782,6 +1782,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     }
 
     // Add likelihood of wage equation?
+    // *
     if (lsl_joint) {
         lnf = lnf + cross(lsl_Wobs, log(normalden(LnWresPur :/ SigmaW))
                                     :- log(SigmaW))
@@ -1806,6 +1807,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
             }
         }
     }
+    // *
 
     // Calculate dude share
     if (todo == 0 | lsl_lambda > 0) {
@@ -2129,7 +2131,7 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
     }
 
     // Print calculated ("predicted") log-likelihood
-    if (getprobs == 1) lnf
+    if (getprobs == 1) round(lnf, .0001)
 
     // Store prediction
     real matrix result
@@ -2150,7 +2152,7 @@ end
 
 cap program drop lslogit_p
 /**
- * Conditional Logit but integrating out wage prediction errors (Wrapper programm)
+ * Wrapper program for prediction after lslogit estimation
  *
  * @param `pc1'      Predict choice probabilities
  * @param `xb'       Predict systematic utility
@@ -2329,10 +2331,15 @@ program define lslogit_p, rclass
 
     mata: lsl_bwage = (`n_wagevars' != 0) + `n_wagevars'
     mata: lsl_bheck = (lsl_wagecorr > 0) + lsl_wagecorr
-    mata: lsl_brnd  = (lsl_corr == 1 ? lsl_rvars * (lsl_rvars + 1) / 2 : lsl_rvars)
+    mata: lsl_brnd  = (lsl_corr == 1 ? lsl_rvars * (lsl_rvars + 1) / 2 ///
+                                     : lsl_rvars)
     mata: lsl_blam  = (lsl_ufunc == "boxcox" ? 1 + lsl_nlei : 0)
-    mata: lsl_bfix  = `n_cxias' + 1 + (`n_c2xias' + 1) * (lsl_ufunc != "boxcox") + lsl_nlei + `n_lx1ias' + 1 + (`n_l2x1ias' + 1) * (lsl_ufunc != "boxcox") + ///
-                      (`n_lx2ias' + 1 + (`n_l2x2ias' + 1) * (lsl_ufunc != "boxcox") + 1) * (lsl_nlei == 2) + `n_indeps'
+    mata: lsl_bfix  = `n_cxias' + 1 + (`n_c2xias' + 1) *                ///
+                      (lsl_ufunc != "boxcox") + lsl_nlei + `n_lx1ias' + ///
+                      1 + (`n_l2x1ias' + 1) * (lsl_ufunc != "boxcox") + ///
+                      (`n_lx2ias' + 1 + (`n_l2x2ias' + 1) *             ///
+                      (lsl_ufunc != "boxcox") + 1) * (lsl_nlei == 2) +  ///
+                      `n_indeps'
 
     mata: lsl_iwage = 1         + lsl_bfix
     mata: lsl_iheck = lsl_iwage + lsl_bwage
@@ -2344,9 +2351,20 @@ program define lslogit_p, rclass
     mata: lsl_iL2 = lsl_iL1 + `n_l2x1ias' + 1 + `n_lx2ias' + 1
 
     mata: lsl_Bfix  = lsl_B[|1\lsl_bfix|]
-    mata: lsl_Bwage = (lsl_bwage > 0 ? lsl_B[|lsl_iwage\lsl_iwage + lsl_bwage - 1|] : J(0, 0, 0))     // Wage coefficients
-    mata: lsl_Bsig  = (lsl_bheck > 0 ? lsl_B[lsl_iheck]                             : J(0, 0, 0))     //   Cholesky factor of wage variance
-    mata: lsl_Brnd  = (lsl_rvars > 0 ? lsl_B[|lsl_irnd\lsl_irnd + lsl_brnd - 1|]    : J(0, 0, 0))     // Get auxiliary random coefficients
+
+    // Wage coefficients
+    mata: lsl_Bwage = (lsl_bwage > 0                                    ///
+                         ? lsl_B[|lsl_iwage\lsl_iwage + lsl_bwage - 1|] ///
+                         : J(0, 0, 0))
+
+    //   Cholesky factor of wage variance
+    mata: lsl_Bsig  = (lsl_bheck > 0 ? lsl_B[lsl_iheck]
+                                     : J(0, 0, 0))
+
+    // Get auxiliary random coefficients
+    mata: lsl_Brnd  = (lsl_rvars > 0                                 ///
+                         ? lsl_B[|lsl_irnd\lsl_irnd + lsl_brnd - 1|] ///
+                         : J(0, 0, 0))
 
 
     //
@@ -2354,11 +2372,24 @@ program define lslogit_p, rclass
     //
 
     if ("`e(taxreg)'" == "1") {
-        mata: lsl_TaxregB     = st_matrix("e(taxreg_b)")                                                            // Tax regression estimates
-        mata: lsl_TaxregIas1  = ("`e(taxreg_ia1)'" != "" ? st_data(., tokens("`e(taxreg_ia1)'")) : J(`nobs', 0, 0)) // Interaction variables on Mwage1 and Mwage1^2
-        mata: lsl_TaxregIas2  = ("`e(taxreg_ia2)'" != "" ? st_data(., tokens("`e(taxreg_ia2)'")) : J(`nobs', 0, 0)) // Interaction variables on Mwage2 and Mwage2^2
-        mata: lsl_TaxregVars  = st_data(., tokens("`e(taxreg_vars)'"))                                              // Variables that are independent of m_wage
-        mata: lsl_taxreg_rmse = strtoreal("`e(taxreg_rmse)'")                                                       // Root Mean Squared error of tax regression
+        // Tax regression estimates
+        mata: lsl_TaxregB     = st_matrix("e(taxreg_b)")
+
+        // Interaction variables on Mwage1 and Mwage1^2
+        mata: lsl_TaxregIas1  = ("`e(taxreg_ia1)'" != ""                   ///
+                                   ? st_data(., tokens("`e(taxreg_ia1)'")) ///
+                                   : J(`nobs', 0, 0))
+
+        // Interaction variables on Mwage2 and Mwage2^2
+        mata: lsl_TaxregIas2  = ("`e(taxreg_ia2)'" != ""                   ///
+                                   ? st_data(., tokens("`e(taxreg_ia2)'")) ///
+                                   : J(`nobs', 0, 0))
+
+        // Variables that are independent of m_wage
+        mata: lsl_TaxregVars  = st_data(., tokens("`e(taxreg_vars)'"))
+
+        // Root Mean Squared error of tax regression
+        mata: lsl_taxreg_rmse = strtoreal("`e(taxreg_rmse)'")
     }
 
     // Box-Cox normalizing constants
@@ -2370,20 +2401,24 @@ program define lslogit_p, rclass
 
     // Consumption, squared and interactions
     mata: lsl_C   = st_data(., "`e(consum)'") :/ lsl_boxcc
-    mata: lsl_CX  = ((`n_cxias'  > 0 ? st_data(., tokens("`e(cx)'"))   ///
+    mata: lsl_CX  = ((`n_cxias'  > 0 ? st_data(., tokens("`e(cx)'"))  ///
                                      : J(`nobs', 0, 0)), J(`nobs', 1, 1))
-    mata: lsl_C2X = ((`n_c2xias' > 0 ? st_data(., tokens("`e(c2x)'"))  ///
-                                     : J(`nobs', 0, 0)), J(`nobs', (lsl_ufunc != "boxcox" ? 1 : 0), 1))
+    mata: lsl_C2X = ((`n_c2xias' > 0 ? st_data(., tokens("`e(c2x)'")) ///
+                                     : J(`nobs', 0, 0)),              ///
+                     J(`nobs', (lsl_ufunc != "boxcox" ? 1 : 0), 1))
 
     // Leisure, squared and interactions
     forval i = 1/2 {
         local var : word `i' of `e(leisure)'
         if ("`var'" != "") {
             mata: lsl_L`i'   = st_data(., "`var'") :/ lsl_boxcl
-            mata: lsl_LX`i'  = ((`n_lx`i'ias'  >  0 ? st_data(., tokens("`e(lx`i')'"))     ///
-                                                    : J(`nobs', 0, 0)), J(`nobs', 1, 1))
-            mata: lsl_L2X`i' = ((`n_l2x`i'ias' >  0 ? st_data(., tokens("`e(l2x`i')'"))    ///
-                                                    : J(`nobs', 0, 0)), J(`nobs', (lsl_ufunc != "boxcox" ? 1 : 0), 1))
+            mata: lsl_LX`i'  = ((`n_lx`i'ias'  > 0                    ///
+                                   ? st_data(., tokens("`e(lx`i')'")) ///
+                                   : J(`nobs', 0, 0)), J(`nobs', 1, 1))
+            mata: lsl_L2X`i' = ((`n_l2x`i'ias' > 0                     ///
+                                   ? st_data(., tokens("`e(l2x`i')'")) ///
+                                   : J(`nobs', 0, 0)),
+                                J(`nobs', (lsl_ufunc != "boxcox" ? 1 : 0), 1))
         }
         else {
             mata: lsl_L`i'   = J(`nobs', 0, 0)
@@ -2391,24 +2426,36 @@ program define lslogit_p, rclass
             mata: lsl_L2X`i' = J(`nobs', 0, 0)
         }
     }
-    // Hypothetical hours of work
-    mata: lsl_Hours = `e(totaltime)' :- (lsl_L1, lsl_L2) :* lsl_boxcl  // caution: undo Box-Cox normalization!
+
+    // Hypothetical hours of work (caution: undo Box-Cox normalization!)
+    mata: lsl_Hours = `e(totaltime)' :- (lsl_L1, lsl_L2) :* lsl_boxcl
 
     // Dummy variables
-    mata: lsl_Xind = (`n_indeps' > 0 ? st_data(., tokens("`e(indeps)'")) : J(`nobs', 0, 0))
+    mata: lsl_Xind = (`n_indeps' > 0 ? st_data(., tokens("`e(indeps)'")) ///
+                                     : J(`nobs', 0, 0))
 
+    //
     // Build right hand side
-    if ("`e(ufunc)'" == "tran") {           // Translog utility
-        mata: lsl_X = (log(lsl_C)  :* (lsl_CX,  log(lsl_C)  :* lsl_C2X,   log(lsl_L1),   log(lsl_L2)),      ///
-                       log(lsl_L1) :* (lsl_LX1, log(lsl_L1) :* lsl_L2X1),                                   ///
-                       log(lsl_L2) :* (lsl_LX2, log(lsl_L2) :* lsl_L2X2), log(lsl_L1) :* log(lsl_L2), lsl_Xind)
+    //
+
+    // Translog utility
+    if ("`e(ufunc)'" == "tran") {
+        mata: lsl_X = (log(lsl_C)  :* (lsl_CX,  log(lsl_C)  :* lsl_C2X,   ///
+                                       log(lsl_L1), log(lsl_L2)),         ///
+                       log(lsl_L1) :* (lsl_LX1, log(lsl_L1) :* lsl_L2X1), ///
+                       log(lsl_L2) :* (lsl_LX2, log(lsl_L2) :* lsl_L2X2), ///
+                       log(lsl_L1) :* log(lsl_L2), lsl_Xind)
     }
-    else if ("`e(ufunc)'" == "quad") {      // Quadratic utility
-        mata: lsl_X = (lsl_C  :* (lsl_CX,  lsl_C  :* lsl_C2X,   lsl_L1,   lsl_L2),      ///
-                       lsl_L1 :* (lsl_LX1, lsl_L1 :* lsl_L2X1),                         ///
-                       lsl_L2 :* (lsl_LX2, lsl_L2 :* lsl_L2X2), lsl_L1 :* lsl_L2, lsl_Xind)
+    // Quadratic utility
+    else if ("`e(ufunc)'" == "quad") {
+        mata: lsl_X = (lsl_C  :* (lsl_CX,  lsl_C  :* lsl_C2X,   ///
+                                  lsl_L1,  lsl_L2),             ///
+                       lsl_L1 :* (lsl_LX1, lsl_L1 :* lsl_L2X1), ///
+                       lsl_L2 :* (lsl_LX2, lsl_L2 :* lsl_L2X2), ///
+                       lsl_L1 :* lsl_L2, lsl_Xind)
     }
-    else if ("`e(ufunc)'" == "boxcox") {    // Box-Cox utility
+    // Box-Cox utility
+    else if ("`e(ufunc)'" == "boxcox") {
         mata: lsl_lC  = lsl_B[lsl_ilam]
         mata: lsl_lL1 = lsl_B[lsl_ilam + 1]
         mata: lsl_lL2 = (lsl_nlei == 2 ? lsl_B[lsl_ilam + 2] : 0)
@@ -2416,15 +2463,22 @@ program define lslogit_p, rclass
         mata: lsl_Bfix
         mata: "lsl_lC", "lsl_lL1", "lsl_lL2"
         mata: lsl_lC, lsl_lL1, lsl_lL2
-        mata: lsl_X   = (lsl_boxcox(lsl_C, lsl_lC)   :* (lsl_CX,  lsl_boxcox(lsl_L1, lsl_lL1),   lsl_boxcox(lsl_L2, lsl_lL2)),    ///
-                         lsl_boxcox(lsl_L1, lsl_lL1) :*  lsl_LX1,                                                                 ///
-                         lsl_boxcox(lsl_L2, lsl_lL2) :*  lsl_LX2, lsl_boxcox(lsl_L1, lsl_lL1) :* lsl_boxcox(lsl_L2, lsl_lL2), lsl_Xind)
+        mata: lsl_X = (lsl_boxcox(lsl_C, lsl_lC)   :*           ///
+                        (lsl_CX, lsl_boxcox(lsl_L1, lsl_lL1),   ///
+                                 lsl_boxcox(lsl_L2, lsl_lL2)),  ///
+                       lsl_boxcox(lsl_L1, lsl_lL1) :*  lsl_LX1, ///
+                       lsl_boxcox(lsl_L2, lsl_lL2) :*  lsl_LX2, ///
+                       lsl_boxcox(lsl_L1, lsl_lL1) :*           ///
+                        lsl_boxcox(lsl_L2, lsl_lL2), lsl_Xind)
     }
 
     // Generate Halton sequences
-    local R_rvars = `rvars' + `e(wagep)' * `n_leisure' + !inlist("`e(taxreg_rmse)'", "", ".")
-    mata: lsl_R = (`R_rvars' > 0 ? invnormal(halton(lsl_groups * lsl_draws, `R_rvars', 1 + lsl_burn)) : J(`nobs', 0, 0))
-    //mata: randwage = ("`wrand'" != "" ? st_data(., "`wrand'") : J(`nobs', 1, 0))
+    local R_rvars = `rvars' + `e(wagep)' * `n_leisure' + ///
+                    !inlist("`e(taxreg_rmse)'", "", ".")
+    mata: lsl_R = (`R_rvars' > 0                                  ///
+                     ? invnormal(halton(lsl_groups * lsl_draws,   ///
+                                        `R_rvars', 1 + lsl_burn)) ///
+                     : J(`nobs', 0, 0))
 
 
     //
@@ -2432,18 +2486,26 @@ program define lslogit_p, rclass
     //
 
     mata: lsl_CholBW = J(lsl_nlei, lsl_rvars, 0)
-    if (inlist("`e(joint)'", "joint", "1")) {    // BUGGY!!!
+    if (inlist("`e(joint)'", "joint", "1")) {
         // Predict wages
-        mata: lsl_LnWageHat = cross((st_data(., tokens("`e(wagevars)'")), J(`nobs', 1, 1))', lsl_Bwage')
+        mata: lsl_LnWageHat = cross((st_data(., tokens("`e(wagevars)'")), ///
+                                     J(`nobs', 1, 1))', lsl_Bwage')
 
         // Get wage equation residuals
         mata: lsl_LnWres = lsl_Wobs :* (log(lsl_Hwage) :- lsl_LnWageHat)
 
         // Root MSE of wage equation if not estimated simultaneously
-        if (inlist("`e(wagecorr)'", "", "0")) mata: lsl_Bsig = sqrt(cross(lsl_LnWres, lsl_LnWres) / (colsum(lsl_Wobs) - lsl_bwage))
+        if (inlist("`e(wagecorr)'", "", "0")) {
+            mata: lsl_Bsig = sqrt(cross(lsl_LnWres, lsl_LnWres) / ///
+                                  (colsum(lsl_Wobs) - lsl_bwage))
+        }
 
         // Build lower line of Cholesky matrix
-        if ("`e(wcorrvars)'" == "`e(randvars)'") mata: lsl_CholBW = (lsl_wagecorr > 0 ? lsl_B[|lsl_iheck + 1\lsl_iheck + lsl_bheck - 1|] : J(1, 0, 0))
+        if ("`e(wcorrvars)'" == "`e(randvars)'") {
+            mata: lsl_CholBW = (lsl_wagecorr > 0                                     ///
+                                  ? lsl_B[|lsl_iheck + 1\lsl_iheck + lsl_bheck - 1|] ///
+                                  : J(1, 0, 0))
+        }
         else {
             // Cholesky factors between coefficients and wages
             // Correlation structure different from random coefficients
@@ -2466,16 +2528,19 @@ program define lslogit_p, rclass
         mata: lsl_CholW = diag(lsl_Bsig)
 
         // Calculate standard error of wage equation
-        mata: lsl_SigmaW = (lsl_wagecorr ? sqrt(rowsum((lsl_CholBW, lsl_CholW):^2))' : lsl_Bsig)
+        mata: lsl_SigmaW = (lsl_wagecorr                                  ///
+                              ? sqrt(rowsum((lsl_CholBW, lsl_CholW):^2))' ///
+                              : lsl_Bsig)
 
         // Store error
         mata: st_numscalar("r(sigma_w1)", lsl_SigmaW)
         return scalar sigma_w1 = `r(sigma_w1)'
 
         // Replace hourly wage rates
-        mata: lsl_Hwage = exp(lsl_LnWageHat :+ lsl_SigmaW:^2/2 /*:+ randwage :* lsl_SigmaW*/) :* (lsl_Hours[|1,1\.,1|] :!= 0)
+        mata: lsl_Hwage = exp(lsl_LnWageHat :+ lsl_SigmaW:^2/2) :* ///
+                          (lsl_Hours[|1,1\.,1|] :!= 0)
     }
-    else mata: mata: lsl_CholW = diag(lsl_Sigma)
+    else mata: lsl_CholW = diag(lsl_Sigma)
 
     // Increase wages
     if (`n_wincrea' > 0) {
@@ -2499,22 +2564,24 @@ program define lslogit_p, rclass
         qui gen double `v' = .
     }
 
-    // Wage prediction? (Buggy! Works only for single decision maker housholds!)
+    // Wage prediction (Buggy! Works only for single decision maker housholds!)
     if ("`wages'" != "") {
         // Get name of new variable
-        mata: st_local("newvar", invtokens((tokens("`opt'") :== "wages") :* tokens("`varlist'")))
+        mata: st_local("newvar", invtokens((tokens("`opt'") :== "wages") :* ///
+                                           tokens("`varlist'")))
 
         // Store predicted wages
         mata: st_store(., "`newvar'", "`touse'", lsl_Hwage)
 
         // I'm done, drop wage variable from varlist
-        mata: st_local("varlist", invtokens((tokens("`opt'") :!= "wages") :* tokens("`varlist'")))
+        mata: st_local("varlist", invtokens((tokens("`opt'") :!= "wages") :* ///
+                                            tokens("`varlist'")))
     }
 
     // Run evaluator and predict pc1/xb/dudes/...
     if (!inlist(trim("`opt'"), "", "wages")) {
         if ("`pc1'" != "" | "`opt'" == "pc1") {
-            di as text "Estimated ll=`=round(e(ll), 0.0001)'. Now ... "
+            di as text "Estimated ll=`=round(e(ll), 0.0001)'. Now ... " _c
         }
         mata: lslogit_p(tokens("`varlist'"), "`touse'", tokens("`opt'"))
     }
@@ -2525,9 +2592,12 @@ program define lslogit_p, rclass
     //
 
     /*
-    foreach m in round ufunc Weight Y Hwage boxcc boxcl C CX C2X L1 LX1 L2X1 L2 LX2 L2X2 Xind X joint ///
-                 WageVars Days Hours wagep Wpred Sigma TaxregB TaxregIas1 TaxregIas2 TaxregVars ///
-                 groups J draws burn Rvars corr R lC lL1 lL2 B Bfix bfix rvars {
+    foreach m in round ufunc Weight Y Hwage boxcc boxcl C CX C2X ///
+                 L1 LX1 L2X1 L2 LX2 L2X2 Xind X joint            ///
+                 WageVars Days Hours wagep Wpred Sigma TaxregB   ///
+                 TaxregIas1 TaxregIas2 TaxregVars                ///
+                 groups J draws burn Rvars corr R lC lL1 lL2 B   ///
+                 Bfix bfix rvars {
         cap mata mata drop lsl_`m'
     }
     */
