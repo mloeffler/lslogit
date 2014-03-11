@@ -81,6 +81,10 @@ program define lslogit_Replay
         if ("`e(wagecorr)'" != "") {
             local footnote "`footnote' with correlation (`e(wcorrvars)')"
         }
+        if ("`e(residanchor)'" == "1") {
+            local footnote "`footnote'" _newline "       " ///
+                           "  (with residual anchor, using observed wages if possible)"
+        }
         if ("`e(density)'" != "") {
             local footnote "`footnote'" _newline "       " ///
                            "- Accounted for choice density"
@@ -1286,7 +1290,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
     // DEBUG
 
     // Calculate wage variance (by Cholesky or just the coefficient)
-    SigmaW = (lsl_wagecorr ? sqrt(rowsum((CholW):^2))' : Bsig)
+    SigmaW = (lsl_wagecorr ? sqrt(rowsum(CholW:^2))' : Bsig)
 
     // Initialize matrix with random coefficients, every row is a draw
     if (brnd > 0) Zeta = J(rows(lsl_R), bfix, 0)
@@ -1864,10 +1868,13 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
     external real rowvector lsl_Bfix
     external real matrix    lsl_CholBW
     external real matrix    lsl_CholW
+    external real matrix    lsl_CholB
     external real matrix    lsl_Brnd
     external real scalar    lsl_bfix
+    external real scalar    lsl_nlei
     external real scalar    lsl_boxcc
     external real scalar    lsl_lC, lsl_lL1, lsl_lL2
+    external real matrix    lsl_LnWres
 
     // Right hand side variables
     external real matrix    lsl_X
@@ -1959,7 +1966,7 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
                    getutils, getprobs, getdudes
     real colvector U, P, D, Un, Pn, Unr, Enr, Pnr, C, L1, BcC, BcL1, Yn
     real rowvector Beta, Zeta, Bsig
-    real matrix    CholB, Xnr, CX, C2X, LX1, L2X1, L2, BcL2, LX2, L2X2, Xind,
+    real matrix    Xnr, CX, C2X, LX1, L2X1, L2, BcL2, LX2, L2X2, Xind,
                    Wn, Mwage, TaxregX1, TaxregX2, TaxregX, Dude
 
     // Indicates first observation of active group
@@ -1991,7 +1998,7 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
     // Initialize random coefficients vector
     if (lsl_rvars > 0) {
         Zeta = J(rows(lsl_R), lsl_bfix, 0)
-        Zeta[.,lsl_Rvars] = cross(lsl_R[|1,1\.,lsl_rvars|]', CholB')
+        //Zeta[.,lsl_Rvars] = cross(lsl_R[|1,1\.,lsl_rvars|]', lsl_CholB')
     }
 
     // Loop over individuals
@@ -2025,9 +2032,12 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
         }
         wp = (lsl_wagep & sum(lsl_Wpred[|i,1\e,.|]) > 0)
 
-        // Use residual anchor?
-        if (lsl_residanchor & lsl_joint & wp & colsum(lsl_Wobs[|i,1\e,1|]) == 1) {
-            lsl_R[|lsl_draws * (n - 1) + 1,cols(lsl_R) - 1\lsl_draws * (n - 1) + lsl_draws,cols(lsl_R) - 1|] = J(lsl_draws, 1, colsum(lsl_LnWres[|i,1\e,1|]) / lsl_SigmaW)
+        // Wage residual anchor? Use actual wage equation residuals
+        //   instead of random draws
+        if (lsl_residanchor & lsl_joint & wp
+          & colsum(lsl_Wobs[|i,1\e,1|]) == 1) {
+            lsl_R[|lsl_draws * (n - 1) + 1,1\lsl_draws * (n - 1) + lsl_draws,1|] =
+                    J(lsl_draws, 1, colsum(lsl_LnWres[|i,1\e,1|]) / lsl_CholW)
         }
 
         lsum = 0
@@ -2039,6 +2049,16 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
             // Indicates the active Halton sequence
             iRV = lsl_draws * (n - 1) + r
 
+            // Build (random?) coefficients matrix (DEBUG HERE!)
+            if (lsl_rvars > 0) {
+                Zeta[iRV,lsl_Rvars] =
+                    cross(lsl_R[|iRV,1\iRV,lsl_wagep * lsl_nlei + lsl_rvars|]',
+                          (lsl_CholBW', lsl_CholB)')
+            }
+
+            // Build (random?) coefficients vector
+            Beta = lsl_Bfix :+ (lsl_rvars > 0 ? Zeta[iRV,.] : 0)
+
             if (wp | lsl_joint) {
 
                 //
@@ -2046,7 +2066,10 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
                 //
 
                 // Adjust wages with random draws if prediction enabled
-                if (lsl_wagep) Wn = lsl_Hwage[|i,1\e,.|] :* exp(cross((lsl_CholBW, lsl_CholW)', lsl_R[|iRV,1\iRV,cols(lsl_R) - 1|]')' :* lsl_Wpred[|i,1\e,.|])
+                if (lsl_wagep) {
+                    Wn = lsl_Hwage[|i,1\e,.|] :* exp(cross(lsl_CholW', lsl_R[|iRV,1\iRV,lsl_nlei|]')' :*
+                                lsl_Wpred[|i,1\e,.|])
+                }
 
                 // Calculate monthly earnings
                 Mwage = (lsl_Days[|i\e|] :/ 12 :/ 7) :* lsl_Hours[|i,1\e,.|] :* Wn
@@ -2082,9 +2105,6 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
                 }
 
             }
-
-            // Build (random?) coefficients vector
-            Beta = lsl_Bfix :+ (lsl_rvars > 0 ? Zeta[iRV,.] : 0)
 
             // Calculate systematic utility and choice probability
             Unr = cross(Xnr', Beta')
@@ -2131,7 +2151,11 @@ void lslogit_p(string rowvector newvar, string scalar touse, string rowvector op
     }
 
     // Print calculated ("predicted") log-likelihood
-    if (getprobs == 1) round(lnf, .0001)
+    if (getprobs == 1) {
+        if (lsl_joint) lnf = lnf + cross(lsl_Wobs, log(normalden(lsl_LnWres :/ lsl_SigmaW))
+                                                   :- log(lsl_SigmaW))
+        round(lnf, .0001)
+    }
 
     // Store prediction
     real matrix result
@@ -2365,6 +2389,10 @@ program define lslogit_p, rclass
                          ? lsl_B[|lsl_irnd\lsl_irnd + lsl_brnd - 1|] ///
                          : J(0, 0, 0))
 
+    // Build variance-(covariance) matrix
+    mata: lsl_CholB = (lsl_corr == 1 ? lowertriangle(invvech(lsl_Brnd')) ///
+                                     : diag(lsl_Brnd'))
+
 
     //
     // Tax regression
@@ -2527,8 +2555,7 @@ program define lslogit_p, rclass
         mata: lsl_CholW = diag(lsl_Bsig)
 
         // Calculate standard error of wage equation
-        mata: lsl_SigmaW = (lsl_wagecorr                                  ///
-                              ? sqrt(rowsum((lsl_CholBW, lsl_CholW):^2))' ///
+        mata: lsl_SigmaW = (lsl_wagecorr ? sqrt(rowsum(lsl_CholW:^2))' ///
                               : lsl_Bsig)
 
         // Store error
