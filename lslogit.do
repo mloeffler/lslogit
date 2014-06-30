@@ -2,7 +2,7 @@
  *
  * lslogit -- ESTIMATING MIXED LOGIT LABOR SUPPLY MODELS WITH STATA
  *
- * (c) 2012-2014 Max Löffler <loeffler@iza.org>
+ * (c) 2012-2014 Max Löffler <loeffler@zew.de>
  *
  *****************************************************************************/
 
@@ -637,7 +637,8 @@ program define lslogit_Estimate, eclass
                                : J(0, 1, 0))
 
     // Use actual residiuals for folks with observed wages
-    mata: lsl_residanchor = ("`anchor'" != "noanchor") & (`wagep' == 1)
+    mata: lsl_residanchor = ("`anchor'" != "noanchor") & (`wagep' == 1) ///
+                                                       & lsl_joint
 
     // Wagedraws? For estimation on random choice set
     mata: lsl_Wagedraws   = ("`wagedraws'" != ""           ///
@@ -902,7 +903,8 @@ program define lslogit_Estimate, eclass
     ereturn local ufunc          `ufunc'
     ereturn local wagep          `wagep'
     ereturn local joint          `joint'
-    ereturn local residanchor = ("`anchor'" != "noanchor") & (`wagep' == 1)
+    ereturn local residanchor = ("`anchor'" != "noanchor") & (`wagep' == 1) ///
+                                                           & ("`joint'" != "")
     ereturn local draws          `draws'
     ereturn local burn           `burn'
     ereturn local totaltime      `totaltime'
@@ -1581,10 +1583,16 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
                     if (lsl_ufunc == "quad") {
                         DUdC = cross((CX, 2 :* C2X :* C, L1, L2)',
                                      Beta[|1\ncons|]')
+                    } else if (lsl_ufunc == "boxcox") {
+                        DUdC = cross(((CX, BcL1, (nlei == 2 ? BcL2 : J(c, 0, 0)))
+                                       :* (reldif(lC, 0) >= 1e-25
+                                           ? C:^(lC - 1) :/ lsl_boxcc
+                                           : lsl_boxcc :/ C))',
+                                     Beta[|1\ncons|]')
                     } else if (lsl_ufunc == "tran") {
                         DUdC = cross(((CX, 2 :* C2X :* log(C), log(L1),
                                        log(L2)) :/ C)', Beta[|1\ncons|]')
-                    } else "DEBUG: Box-Cox not with joint!!"
+                    }
                     DCdM = cross((J(c, 1, 1), 2 :* Mwage,
                                   lsl_TaxregIas1[|i,1\e,.|],
                                   2 :* Mwage :* lsl_TaxregIas1[|i,1\e,.|])',
