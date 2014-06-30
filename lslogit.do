@@ -772,7 +772,7 @@ program define lslogit_Estimate, eclass
                                         `SigmaW')) :- log(`SigmaW'))        ///
                                 : 0)))
     if ("`density'" != "") {
-        di as text "(Note: Pseudo-R2 buggy when using choice densities)
+        di as text "(Note: Pseudo-R2 buggy when using choice densities)"
     }
 
     // Restore data
