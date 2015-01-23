@@ -21,7 +21,6 @@
  */
 
 
-cap program drop lslogit
 /**
  * Wrapper programm
  */
@@ -38,7 +37,6 @@ program define lslogit
 end
 
 
-cap program drop lslogit_Replay
 /**
  * Display estimation results and model notes
  *
@@ -110,7 +108,6 @@ program define lslogit_Replay
 end
 
 
-cap program drop lslogit_Estimate
 /**
  * Set up data and run estimation
  */
@@ -1013,11 +1010,6 @@ program define lslogit_Estimate, eclass
     lslogit_Replay, level(`level') `quiet'
 end
 
-
-// Drop mata functions if they exist
-foreach fct in lslogit_d2 lsl_boxcox lsl_boxcox_g lsl_boxcox_h lslogit_p {
-    cap mata mata drop `fct'()
-}
 
 mata
 mata set matastrict on
@@ -2191,7 +2183,6 @@ mata set matastrict off
 end
 
 
-cap program drop lslogit_p
 /**
  * Wrapper program for prediction after lslogit estimation
  *
@@ -2656,7 +2647,6 @@ program define lslogit_p, rclass
 end
 
 
-cap program drop lslogit_cov
 /**
  * Conditional Logit but integrating out wage prediction errors (Wrapper programm)
  */
