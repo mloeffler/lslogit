@@ -3,6 +3,8 @@ Stata package lslogit
 
 *lslogit* is a [Stata](http://www.stata.com/) command that fits mixed logit models with particular focus on the estimation of structural labor supply models. It uses maximum simulated likelihood methods ([Train, 2009](#train_2009)). It makes use of Stata's maximum likelihood framework and is implemented as d2-evaluator ([Gould et al., 2010](#gould_etal_2010)). *lslogit* is written in Mata, Stata's matrix programming language.
 
+I presentend a preview of *lslogit* at the [Stata Conference in New Orleans](http://www.stata.com/meeting/new-orleans13/) in July 2013. You can find the slides of this presentation [here](https://ideas.repec.org/p/boc/norl13/8.html).
+
 
 ## Features
 - Flexible utility specifications (translog, quadratic, Box-Cox).
@@ -12,6 +14,16 @@ Stata package lslogit
 - Automatic calculation of the marginal utility with respect to consumption.
 - Allows to impose contraints on the marginal utility of consumption.
 - Simultaneous estimation of wages and preferences (work in progress).
+
+
+## Installation
+
+You can install the latest version of *lslogit* it by typing:
+
+	. net from https://mloeffler.github.io/stata/
+	. net install lslogit
+
+Done.
 
 
 ## Thanks
