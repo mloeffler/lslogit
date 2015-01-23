@@ -1,17 +1,30 @@
-/*****************************************************************************
+*! version 0.4, 23jan2015, Max Loeffler <loeffler@zew.de>
+/**
+ * LSLOGIT - ESTIMATING MIXED LOGIT LABOR SUPPLY MODELS WITH STATA
+ * 
  *
- * lslogit -- ESTIMATING MIXED LOGIT LABOR SUPPLY MODELS WITH STATA
- *
- * (c) 2012-2014 Max Löffler <loeffler@zew.de>
- *
- *****************************************************************************/
+ * Copyright (C) 2012-2015 Max Löffler <loeffler@zew.de>
+ * 
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ */
 
 
 cap program drop lslogit
 /**
  * Wrapper programm
  */
-*! version 0.3.1  03feb2014  Max Löffler
 program define lslogit
     version 12
     syntax [varlist] [if] [in] [fweight/] [, cov *]

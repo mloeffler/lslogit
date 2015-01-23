@@ -1,5 +1,5 @@
 {smcl}
-{* *! version 1.2.0  28dec2012}{...}
+{* *! version 0.4, 23jan2015}{...}
 {vieweralsosee "[R] clogit" "help clogit"}{...}
 {vieweralsosee "[R] mixlogit" "help mixlogit"}{...}
 {vieweralsosee "lslogit on GitHub" "browse https://github.com/mloeffler/lslogit/"}{...}
@@ -11,7 +11,7 @@
 {title:Title}
 
 {phang}
-{bf:lslogit} {hline 2} Mixed logit labor supply model
+{bf:lslogit} {hline 2} Estimate mixed logit labor supply models
 
 
 {marker syntax}{...}
@@ -83,8 +83,8 @@
 * {opt group(varname)}, {opt consumption(varname)} and {opt leisure(varlist)} are required.{p_end}
 
 {p 4 6 2}
-{cmd:fweight}s, {cmd:iweight}s, and {cmd:pweight}s are allowed (see {help weight}),
-but they are interpreted to apply to the group, not to individual observations. See
+{cmd:fweight}s are allowed (see {help weight}), but they are interpreted to
+apply to the group, not to individual observations. See
 {mansection R clogitRemarksUseofweights:{it:Use of weights}} in {bf:[R] clogit}.{p_end}
 
 
@@ -291,8 +291,32 @@ van Soest, A. (1995). Structural models of family labor supply -- a discrete cho
 {marker author}{...}
 {title:Author}
 
-{phang}
-{cmd:lslogit} was written by Max Löffler ({browse "mailto:loeffler@iza.org":loeffler@iza.org}), Institute for the
-Study of Labor (IZA), Bonn, Germany.
-    
+{pstd}
+{cmd:lslogit} was written by Max Löffler ({browse "mailto:loeffler@zew.de":loeffler@zew.de}),
+Centre for European Economic Research (ZEW), Mannheim, Germany. Comments and
+suggestions are welcome.
+
+
+{marker license}{...}
+{title:License}
+
+{pstd}
+Copyright (C) 2012-2015, {browse "mailto:loeffler@zew.de":Max Löffler}
+
+{pstd}
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
+
+{pstd}
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+{pstd}
+You should have received a copy of the GNU General Public License along
+with this program; if not, write to the Free Software Foundation, Inc.,
+51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
