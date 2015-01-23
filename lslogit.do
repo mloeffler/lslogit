@@ -393,10 +393,9 @@ program define lslogit_Estimate, eclass
 
     // Build weight settings
     if ("`weight'" != "") {
-        tempvar wgtvar
-        qui gen `wgtvar' = `exp' if `touse'
+        local wgtvar `exp'
         local wgt "[`weight'=`wgtvar']"
-        qui sum `wgtvar', meanonly
+        qui sum `wgtvar' if `touse', meanonly
         local wgtnobs = r(sum)
     }
     else local wgtnobs = `nobs'
