@@ -18,7 +18,7 @@ I presentend a preview of *lslogit* at the [Stata Conference in New Orleans](htt
 
 ## Installation
 
-You can install the latest version of *lslogit* it by typing:
+You can install the latest version of *lslogit* via Stata by typing:
 
 	. net from https://mloeffler.github.io/stata/
 	. net install lslogit
@@ -37,7 +37,7 @@ Done.
 
 ## Info
 
-Copyright (C) 2012-2015, [Max Löffler](http://www.zew.de/en/staff/mlo)
+Copyright (C) 2012-2015, [Max LÃ¶ffler](http://www.zew.de/en/staff/mlo)
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
