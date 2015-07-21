@@ -1,4 +1,4 @@
-*! version 0.4, 23jan2015, Max Loeffler <loeffler@zew.de>
+*! version 0.4-1, 21jul2015, Max Loeffler <loeffler@zew.de>
 /**
  * LSLOGIT - ESTIMATING MIXED LOGIT LABOR SUPPLY MODELS WITH STATA
  * 
@@ -902,7 +902,7 @@ program define lslogit_Estimate, eclass
     local callcmd ml model `method'`debug' lslogit_d2() `eq_consum' ///
                             `eq_leisure' `eq_indeps' `eq_wages'     ///
                             `eq_boxcox' `eq_rands'                  ///
-                        if `touse' `wgt', group(`group') `initopt'  ///
+                        if `touse', group(`group') `initopt'  ///
                             obs(`wgtnobs') search(off) nopreserve   ///
                             iterate(`iterate') max `difficult'      ///
                             `trace' `gradient' `hessian'            ///
