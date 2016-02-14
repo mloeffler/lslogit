@@ -266,7 +266,7 @@ void lslogit_d2(transmorphic scalar ML, real scalar todo, real rowvector B,
 
     // Cholesky factors between coefficients and wages
     CholBW = (lsl_wagecorr > 0 ? B[|iheck + 1\iheck + bheck - 1|]
-                               : J(nlei, rvars, 0))
+                               : J(lsl_wagep * nlei, rvars, 0)) // DEBUG 2016-02-14: Is this correct?
 
     // Cholesky factors of wage variances
     CholW  = diag(Bsig)

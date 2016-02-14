@@ -1,9 +1,9 @@
-*! version 0.4-1, 21jul2015, Max Loeffler <loeffler@zew.de>
+*! version 0.4-2, 14feb2016, Max Loeffler <loeffler@zew.de>
 /**
  * LSLOGIT - ESTIMATING MIXED LOGIT LABOR SUPPLY MODELS WITH STATA
  * 
  *
- * Copyright (C) 2012-2015 Max Löffler <loeffler@zew.de>
+ * Copyright (C) 2012-2016 Max Löffler <loeffler@zew.de>
  * 
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by

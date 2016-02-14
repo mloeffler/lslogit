@@ -1,5 +1,5 @@
 {smcl}
-{* *! version 0.4-1, 21jul2015}{...}
+{* *! version 0.4-2, 14feb2016}{...}
 {vieweralsosee "[R] clogit" "help clogit"}{...}
 {vieweralsosee "[R] mixlogit" "help mixlogit"}{...}
 {vieweralsosee "lslogit on GitHub" "browse https://github.com/mloeffler/lslogit/"}{...}
@@ -301,7 +301,7 @@ suggestions are welcome.
 {title:License}
 
 {pstd}
-Copyright (C) 2012-2015, {browse "mailto:loeffler@zew.de":Max Löffler}
+Copyright (C) 2012-2016, {browse "mailto:loeffler@zew.de":Max Löffler}
 
 {pstd}
 This program is free software; you can redistribute it and/or modify
