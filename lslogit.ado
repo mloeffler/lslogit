@@ -1,4 +1,4 @@
-*! version 0.4-2, 14feb2016, Max Loeffler <loeffler@zew.de>
+*! version 0.4-3, 04mar2016, Max Loeffler <loeffler@zew.de>
 /**
  * LSLOGIT - ESTIMATING MIXED LOGIT LABOR SUPPLY MODELS WITH STATA
  * 

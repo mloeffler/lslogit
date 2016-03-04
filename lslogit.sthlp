@@ -1,5 +1,5 @@
 {smcl}
-{* *! version 0.4-2, 14feb2016}{...}
+{* *! version 0.4-3, 04mar2016}{...}
 {vieweralsosee "[R] clogit" "help clogit"}{...}
 {vieweralsosee "[R] mixlogit" "help mixlogit"}{...}
 {vieweralsosee "lslogit on GitHub" "browse https://github.com/mloeffler/lslogit/"}{...}

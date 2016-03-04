@@ -342,7 +342,7 @@ program define lslogit_p, rclass
     // Wage prediction? (Buggy! Works only for single decision maker housholds!)
     //
 
-    mata: lsl_CholBW = J(lsl_nlei, lsl_rvars, 0)
+    mata: lsl_CholBW = J(lsl_wagep * lsl_nlei, lsl_rvars, 0)
     if (inlist("`e(joint)'", "joint", "1")) {
         // Predict wages
         mata: lsl_LnWageHat = cross((st_data(., tokens("`e(wagevars)'")), ///
